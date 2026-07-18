@@ -1,0 +1,26 @@
+[
+  {
+    "id": "admin-can-delete",
+    "input": {
+      "user": {"id": "u-1", "role": "admin"},
+      "action": "delete",
+      "resource": {"owner": "u-2"}
+    }
+  },
+  {
+    "id": "owner-can-read",
+    "input": {
+      "user": {"id": "u-1", "role": "member"},
+      "action": "read",
+      "resource": {"owner": "u-1"}
+    }
+  },
+  {
+    "id": "member-cannot-delete",
+    "input": {
+      "user": {"id": "u-1", "role": "member"},
+      "action": "delete",
+      "resource": {"owner": "u-1"}
+    }
+  }
+]

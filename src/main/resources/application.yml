@@ -1,0 +1,24 @@
+spring:
+  main:
+    banner-mode: off
+  application:
+    name: opa-policy-performance-guard
+
+logging:
+  level:
+    root: WARN
+
+opa-guard:
+  opa-executable: ${OPA_EXECUTABLE:opa}
+  query: data.authz.allow
+  baseline-policy: baseline/policy
+  candidate-policy: policy
+  benchmark-dataset: benchmark/dataset.json
+  maximum-latency-regression-percent: 10
+  maximum-memory-regression-percent: 10
+  minimum-iterations: 30
+  warmup-iterations: 5
+  markdown-output: build/reports/opa-guard.md
+  json-output: build/reports/opa-guard.json
+  process-timeout-seconds: 30
+  fail-on-decision-change: true
