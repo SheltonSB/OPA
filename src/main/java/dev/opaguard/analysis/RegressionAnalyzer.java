@@ -58,8 +58,10 @@ public class RegressionAnalyzer {
         List<MetricComparison> comparisons = List.of(
                 compare("Average latency (ms)", main.averageLatencyMillis(), pullRequest.averageLatencyMillis(), latencyThreshold),
                 compare("p95 latency (ms)", main.p95LatencyMillis(), pullRequest.p95LatencyMillis(), latencyThreshold),
-                compare("p99 latency (ms)", main.p99LatencyMillis(), pullRequest.p99LatencyMillis(), latencyThreshold),
-                compare("p999 latency (ms)", main.p999LatencyMillis(), pullRequest.p999LatencyMillis(), latencyThreshold),
+                compareTail("p99 latency (ms)", main.p99LatencyMillis(), pullRequest.p99LatencyMillis(),
+                        latencyThreshold, main.sampleCount(), 100),
+                compareTail("p999 latency (ms)", main.p999LatencyMillis(), pullRequest.p999LatencyMillis(),
+                        latencyThreshold, main.sampleCount(), 1_000),
                 compare("Peak memory (bytes)", main.peakMemoryBytes(), pullRequest.peakMemoryBytes(), memoryThreshold));
 
         List<DecisionMismatch> mismatches = new ArrayList<>();
@@ -104,10 +106,10 @@ public class RegressionAnalyzer {
                         thresholds.maximumAverageLatencyRegressionPercent().doubleValue()),
                 compare("p95 latency (ms)", main.p95LatencyMillis(), pullRequest.p95LatencyMillis(),
                         thresholds.maximumP95LatencyRegressionPercent().doubleValue()),
-                compare("p99 latency (ms)", main.p99LatencyMillis(), pullRequest.p99LatencyMillis(),
-                        thresholds.maximumP99LatencyRegressionPercent().doubleValue()),
-                compare("p999 latency (ms)", main.p999LatencyMillis(), pullRequest.p999LatencyMillis(),
-                        thresholds.maximumP999LatencyRegressionPercent().doubleValue()),
+                compareTail("p99 latency (ms)", main.p99LatencyMillis(), pullRequest.p99LatencyMillis(),
+                        thresholds.maximumP99LatencyRegressionPercent().doubleValue(), main.sampleCount(), 100),
+                compareTail("p999 latency (ms)", main.p999LatencyMillis(), pullRequest.p999LatencyMillis(),
+                        thresholds.maximumP999LatencyRegressionPercent().doubleValue(), main.sampleCount(), 1_000),
                 compare("Peak memory (bytes)", main.peakMemoryBytes(), pullRequest.peakMemoryBytes(),
                         thresholds.maximumMemoryRegressionPercent().doubleValue()),
                 compare("Allocation rate (bytes/s)", main.allocationRateBytesPerSecond(),
@@ -139,6 +141,15 @@ public class RegressionAnalyzer {
     static MetricComparison compare(String name, double baseline, double candidate, double threshold) {
         double regression = regressionPercent(baseline, candidate);
         return new MetricComparison(name, baseline, candidate, regression, threshold, regression - threshold > 1e-9);
+    }
+
+    static MetricComparison compareTail(String name, double baseline, double candidate, double threshold,
+                                        int sampleCount, int minimumSamples) {
+        double regression = regressionPercent(baseline, candidate);
+        String displayName = sampleCount < minimumSamples
+                ? name + " (informational; needs " + minimumSamples + "+ samples)" : name;
+        return new MetricComparison(displayName, baseline, candidate, regression, threshold,
+                sampleCount >= minimumSamples && regression - threshold > 1e-9);
     }
 
     static double regressionPercent(double baseline, double candidate) {

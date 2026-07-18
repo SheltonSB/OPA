@@ -1,0 +1,89 @@
+{
+  "status" : "PASS",
+  "generated_at" : 1784393848.989110000,
+  "baseline" : {
+    "label" : "main",
+    "policy_path" : "policy",
+    "metrics" : {
+      "average_latency_millis" : 20.003346386666667,
+      "p95_latency_millis" : 22.78675,
+      "p99_latency_millis" : 24.351042,
+      "p999_latency_millis" : 30.924083,
+      "throughput_per_second" : 49.99163543288713,
+      "average_cpu_millis" : 0.0,
+      "cpu_utilization_percent" : 0.0,
+      "peak_memory_bytes" : 0,
+      "allocation_rate_bytes_per_second" : 0.0,
+      "gc_pause_millis" : 0.0,
+      "scalability_slope" : 0.0,
+      "sample_count" : 300
+    },
+    "decisions" : {
+      "admin-can-delete" : true,
+      "member-cannot-delete" : false,
+      "owner-can-read" : true
+    }
+  },
+  "candidate" : {
+    "label" : "pr",
+    "policy_path" : "policy",
+    "metrics" : {
+      "average_latency_millis" : 20.06770958,
+      "p95_latency_millis" : 22.891333,
+      "p99_latency_millis" : 23.726583,
+      "p999_latency_millis" : 25.888375,
+      "throughput_per_second" : 49.83129718982111,
+      "average_cpu_millis" : 0.0,
+      "cpu_utilization_percent" : 0.0,
+      "peak_memory_bytes" : 0,
+      "allocation_rate_bytes_per_second" : 0.0,
+      "gc_pause_millis" : 0.0,
+      "scalability_slope" : 0.0,
+      "sample_count" : 300
+    },
+    "decisions" : {
+      "admin-can-delete" : true,
+      "member-cannot-delete" : false,
+      "owner-can-read" : true
+    }
+  },
+  "comparisons" : [ {
+    "metric" : "Average latency (ms)",
+    "baseline" : 20.003346386666667,
+    "candidate" : 20.06770958,
+    "regression_percent" : 0.3217621296416351,
+    "threshold_percent" : 50.0,
+    "threshold_exceeded" : false
+  }, {
+    "metric" : "p95 latency (ms)",
+    "baseline" : 22.78675,
+    "candidate" : 22.891333,
+    "regression_percent" : 0.45896409097391283,
+    "threshold_percent" : 50.0,
+    "threshold_exceeded" : false
+  }, {
+    "metric" : "p99 latency (ms)",
+    "baseline" : 24.351042,
+    "candidate" : 23.726583,
+    "regression_percent" : -2.56440360950467,
+    "threshold_percent" : 50.0,
+    "threshold_exceeded" : false
+  }, {
+    "metric" : "p999 latency (ms) (informational; needs 1000+ samples)",
+    "baseline" : 30.924083,
+    "candidate" : 25.888375,
+    "regression_percent" : -16.28409806040166,
+    "threshold_percent" : 50.0,
+    "threshold_exceeded" : false
+  }, {
+    "metric" : "Peak memory (bytes)",
+    "baseline" : 0.0,
+    "candidate" : 0.0,
+    "regression_percent" : 0.0,
+    "threshold_percent" : 15.0,
+    "threshold_exceeded" : false
+  } ],
+  "decision_mismatches" : [ ],
+  "detected_cause" : "None",
+  "recommendation" : "No action required."
+}

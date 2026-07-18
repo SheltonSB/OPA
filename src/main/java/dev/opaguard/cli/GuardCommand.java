@@ -54,12 +54,11 @@ public class GuardCommand implements ApplicationRunner {
         try {
             var cases = datasetLoader.load(properties.benchmarkDataset());
             Duration timeout = Duration.ofSeconds(properties.processTimeoutSeconds());
-            PolicyBenchmark baseline = benchmarkRunner.run(
-                    "main", properties.baselinePolicy(), properties.query(), cases,
+            BenchmarkRunner.BenchmarkPair pair = benchmarkRunner.runPaired(
+                    properties.baselinePolicy(), properties.candidatePolicy(), properties.query(), cases,
                     properties.warmupIterations(), properties.minimumIterations(), timeout);
-            PolicyBenchmark candidate = benchmarkRunner.run(
-                    "pr", properties.candidatePolicy(), properties.query(), cases,
-                    properties.warmupIterations(), properties.minimumIterations(), timeout);
+            PolicyBenchmark baseline = pair.baseline();
+            PolicyBenchmark candidate = pair.candidate();
             GuardReport report = analyzer.analyze(
                     baseline, candidate,
                     properties.maximumLatencyRegressionPercent(),

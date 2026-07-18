@@ -2,6 +2,7 @@ package dev.opaguard.report;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.module.SimpleModule;
 import dev.opaguard.domain.GuardReport;
 import dev.opaguard.exception.GuardException;
 import org.springframework.stereotype.Component;
@@ -25,7 +26,18 @@ public class JsonReportWriter implements ReportWriter {
      * @param objectMapper application JSON mapper to copy
      */
     public JsonReportWriter(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper.copy().setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
+        SimpleModule portablePaths = new SimpleModule()
+                .addSerializer(Path.class, new com.fasterxml.jackson.databind.JsonSerializer<>() {
+                    @Override
+                    public void serialize(Path value, com.fasterxml.jackson.core.JsonGenerator generator,
+                                          com.fasterxml.jackson.databind.SerializerProvider serializers)
+                            throws IOException {
+                        generator.writeString(value.normalize().toString().replace('\\', '/'));
+                    }
+                });
+        this.objectMapper = objectMapper.copy()
+                .registerModule(portablePaths)
+                .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
     }
 
     @Override

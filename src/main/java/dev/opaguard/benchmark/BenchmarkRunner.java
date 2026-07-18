@@ -83,8 +83,90 @@ public class BenchmarkRunner {
 
         RuntimeTelemetryProvider.RuntimeTelemetry after = evaluator instanceof RuntimeTelemetryProvider telemetry
                 ? telemetry.snapshot(policyPath) : RuntimeTelemetryProvider.RuntimeTelemetry.unavailable();
-        return new PolicyBenchmark(label, policyPath.toAbsolutePath().normalize(), metrics(measurements, before, after), Map.copyOf(decisions));
+        // Reports and events must not disclose worker-local absolute filesystem paths.
+        return new PolicyBenchmark(label, policyPath.normalize(), metrics(measurements, before, after), Map.copyOf(decisions));
     }
+
+    /**
+     * Runs baseline and candidate samples in alternating order to reduce thermal and scheduler drift.
+     *
+     * <p>This is the preferred local CI comparison. Distributed workers still execute independent
+     * policy versions because their scheduling order is balanced by the benchmark fingerprint.</p>
+     *
+     * @param baselinePath protected-branch policy
+     * @param candidatePath proposed policy
+     * @param query fully qualified OPA data query
+     * @param cases identical ordered dataset
+     * @param warmupIterations iterations excluded from metrics
+     * @param measuredIterations iterations included in metrics
+     * @param timeout per-evaluation deadline
+     * @return paired policy benchmarks
+     */
+    public BenchmarkPair runPaired(Path baselinePath, Path candidatePath, String query,
+                                   List<BenchmarkCase> cases, int warmupIterations,
+                                   int measuredIterations, Duration timeout) {
+        long requestedSamples = Math.multiplyExact((long) cases.size(), measuredIterations);
+        if (requestedSamples > MAX_SAMPLES_PER_WORKER) {
+            throw new IllegalArgumentException("A worker may execute at most " + MAX_SAMPLES_PER_WORKER
+                    + " measured samples per policy; split this benchmark into shards");
+        }
+        for (int iteration = 0; iteration < warmupIterations; iteration++) {
+            for (int caseIndex = 0; caseIndex < cases.size(); caseIndex++) {
+                BenchmarkCase benchmarkCase = cases.get(caseIndex);
+                if ((iteration + caseIndex) % 2 == 0) {
+                    evaluator.evaluate(baselinePath, query, benchmarkCase.input(), timeout);
+                    evaluator.evaluate(candidatePath, query, benchmarkCase.input(), timeout);
+                } else {
+                    evaluator.evaluate(candidatePath, query, benchmarkCase.input(), timeout);
+                    evaluator.evaluate(baselinePath, query, benchmarkCase.input(), timeout);
+                }
+            }
+        }
+
+        RuntimeTelemetryProvider.RuntimeTelemetry baselineBefore = telemetry(baselinePath);
+        RuntimeTelemetryProvider.RuntimeTelemetry candidateBefore = telemetry(candidatePath);
+        List<Measurement> baselineSamples = new ArrayList<>((int) requestedSamples);
+        List<Measurement> candidateSamples = new ArrayList<>((int) requestedSamples);
+        Map<String, JsonNode> baselineDecisions = new LinkedHashMap<>();
+        Map<String, JsonNode> candidateDecisions = new LinkedHashMap<>();
+        for (int iteration = 0; iteration < measuredIterations; iteration++) {
+            for (int caseIndex = 0; caseIndex < cases.size(); caseIndex++) {
+                BenchmarkCase benchmarkCase = cases.get(caseIndex);
+                boolean baselineFirst = (iteration + caseIndex) % 2 == 0;
+                Measurement first = evaluator.evaluate(
+                        baselineFirst ? baselinePath : candidatePath, query, benchmarkCase.input(), timeout);
+                Measurement second = evaluator.evaluate(
+                        baselineFirst ? candidatePath : baselinePath, query, benchmarkCase.input(), timeout);
+                Measurement baseline = baselineFirst ? first : second;
+                Measurement candidate = baselineFirst ? second : first;
+                baselineSamples.add(baseline);
+                candidateSamples.add(candidate);
+                baselineDecisions.putIfAbsent(benchmarkCase.id(), baseline.decision());
+                candidateDecisions.putIfAbsent(benchmarkCase.id(), candidate.decision());
+            }
+        }
+        RuntimeTelemetryProvider.RuntimeTelemetry baselineAfter = telemetry(baselinePath);
+        RuntimeTelemetryProvider.RuntimeTelemetry candidateAfter = telemetry(candidatePath);
+        return new BenchmarkPair(
+                new PolicyBenchmark("main", baselinePath.normalize(),
+                        metrics(baselineSamples, baselineBefore, baselineAfter), Map.copyOf(baselineDecisions)),
+                new PolicyBenchmark("pr", candidatePath.normalize(),
+                        metrics(candidateSamples, candidateBefore, candidateAfter), Map.copyOf(candidateDecisions)));
+    }
+
+    private RuntimeTelemetryProvider.RuntimeTelemetry telemetry(Path policyPath) {
+        return evaluator instanceof RuntimeTelemetryProvider provider
+                ? provider.snapshot(policyPath) : RuntimeTelemetryProvider.RuntimeTelemetry.unavailable();
+    }
+
+    /**
+     * Baseline and candidate measurements produced by an interleaved run.
+     *
+     * @param baseline protected-branch result
+     * @param candidate proposed-change result
+     * @author Shelton Bumhe
+     */
+    public record BenchmarkPair(PolicyBenchmark baseline, PolicyBenchmark candidate) {}
 
     static BenchmarkMetrics metrics(List<Measurement> samples) {
         return metrics(samples, RuntimeTelemetryProvider.RuntimeTelemetry.unavailable(),
