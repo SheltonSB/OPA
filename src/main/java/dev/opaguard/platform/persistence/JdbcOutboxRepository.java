@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.sql.Timestamp;
 import java.util.List;
 import java.util.UUID;
 
@@ -33,7 +34,7 @@ public class JdbcOutboxRepository implements OutboxRepository {
                 """).param("event", message.eventId()).param("aggregate", message.aggregateId())
                 .param("org", message.organizationId()).param("topic", message.topic())
                 .param("type", message.eventType()).param("key", message.partitionKey())
-                .param("payload", message.payload()).param("created", message.createdAt()).update();
+                .param("payload", message.payload()).param("created", Timestamp.from(message.createdAt())).update();
     }
 
     @Override
@@ -63,7 +64,7 @@ public class JdbcOutboxRepository implements OutboxRepository {
     @Override
     public void markPublished(UUID eventId, Instant publishedAt) {
         jdbc.sql("UPDATE outbox_events SET published_at=:at, locked_until=NULL, last_error=NULL WHERE event_id=:id")
-                .param("at", publishedAt).param("id", eventId).update();
+                .param("at", Timestamp.from(publishedAt)).param("id", eventId).update();
     }
 
     @Override

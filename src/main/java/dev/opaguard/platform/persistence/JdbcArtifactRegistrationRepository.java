@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.sql.Timestamp;
 import java.util.UUID;
 
 /**
@@ -34,7 +35,7 @@ public class JdbcArtifactRegistrationRepository implements ArtifactRegistrationR
                 ON CONFLICT (organization_id, repository, git_commit, sha256) DO NOTHING
                 """).param("id", versionId).param("org", organizationId).param("repository", repository)
                 .param("commit", gitCommit).param("key", objectKey).param("sha", sha256)
-                .param("query", query).param("created", createdAt).update();
+                .param("query", query).param("created", Timestamp.from(createdAt)).update();
         if (inserted == 0) {
             return jdbc.sql("""
                     SELECT id, organization_id, object_key, sha256, query_path FROM policy_versions
@@ -57,7 +58,7 @@ public class JdbcArtifactRegistrationRepository implements ArtifactRegistrationR
                 ON CONFLICT (organization_id, sha256) DO NOTHING
                 """).param("id", versionId).param("org", organizationId).param("key", objectKey)
                 .param("sha", sha256).param("cases", caseCount).param("size", sizeBytes)
-                .param("created", createdAt).update();
+                .param("created", Timestamp.from(createdAt)).update();
         if (inserted == 0) {
             return jdbc.sql("""
                     SELECT id, organization_id, object_key, sha256, case_count FROM dataset_versions

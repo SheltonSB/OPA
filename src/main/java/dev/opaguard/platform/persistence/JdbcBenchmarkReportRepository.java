@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.sql.Timestamp;
 import java.util.UUID;
 import java.util.Optional;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,7 +36,7 @@ public class JdbcBenchmarkReportRepository implements BenchmarkReportRepository 
                   report_json=excluded.report_json, created_at=excluded.created_at
                 """).param("org", organizationId).param("job", jobId).param("status", status)
                 .param("markdown", markdown).param("html", html).param("json", reportJson)
-                .param("created", createdAt).update();
+                .param("created", Timestamp.from(createdAt)).update();
     }
 
     @Override

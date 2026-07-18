@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -53,8 +54,8 @@ public class JdbcBenchmarkJobRepository implements BenchmarkJobRepository {
                 .param("historical", job.historicalVersionId()).param("dataset", job.datasetVersionId())
                 .param("key", job.idempotencyKey()).param("thresholds", json(job.thresholds()))
                 .param("warmup", job.warmupIterations()).param("measured", job.measuredIterations())
-                .param("status", job.status().name()).param("created", job.createdAt())
-                .param("updated", job.updatedAt()).param("version", job.version())
+                .param("status", job.status().name()).param("created", Timestamp.from(job.createdAt()))
+                .param("updated", Timestamp.from(job.updatedAt())).param("version", job.version())
                 .update();
         BenchmarkJob persisted = inserted == 1 ? job : findByIdempotencyKey(job.organizationId(), job.idempotencyKey()).orElseThrow();
         return new CreationResult(persisted, inserted == 1);
@@ -80,7 +81,8 @@ public class JdbcBenchmarkJobRepository implements BenchmarkJobRepository {
                   AND (status='QUEUED' OR
                        (status='RUNNING' AND (lease_expires_at IS NULL OR lease_expires_at <= :now)))
                 RETURNING id
-                """).param("now", now).param("worker", workerId).param("expires", leaseExpiresAt)
+                """).param("now", Timestamp.from(now)).param("worker", workerId)
+                .param("expires", Timestamp.from(leaseExpiresAt))
                 .param("org", organizationId).param("id", jobId)
                 .query(UUID.class).optional().isPresent();
         if (claimed) return ExecutionClaim.CLAIMED;
@@ -98,7 +100,7 @@ public class JdbcBenchmarkJobRepository implements BenchmarkJobRepository {
         return jdbc.sql("""
                 UPDATE benchmark_jobs SET lease_expires_at=:expires
                 WHERE organization_id=:org AND id=:id AND status='RUNNING' AND lease_owner=:worker
-                """).param("expires", leaseExpiresAt).param("org", organizationId)
+                """).param("expires", Timestamp.from(leaseExpiresAt)).param("org", organizationId)
                 .param("id", jobId).param("worker", workerId).update() == 1;
     }
 
@@ -125,7 +127,7 @@ public class JdbcBenchmarkJobRepository implements BenchmarkJobRepository {
                     lease_expires_at=CASE WHEN :status='RUNNING' THEN lease_expires_at ELSE NULL END
                 WHERE organization_id=:org AND id=:id AND version=:expected_version
                 """)
-                .param("status", job.status().name()).param("updated", job.updatedAt())
+                .param("status", job.status().name()).param("updated", Timestamp.from(job.updatedAt()))
                 .param("next_version", job.version()).param("expected_version", job.version() - 1)
                 .param("org", job.organizationId()).param("id", job.id()).update();
         if (updated != 1) {
