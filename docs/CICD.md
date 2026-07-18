@@ -29,7 +29,7 @@ The container pipeline deliberately separates reporting from enforcement. The fi
 
 ## Implemented release pipeline
 
-A pushed `v*` tag must exactly match the non-SNAPSHOT Maven version. The workflow rebuilds and tests the artifact, generates Javadoc and a CycloneDX SBOM, publishes the GHCR image, signs its digest, scans it, attests release files/image, and creates a GitHub Release with checksums and the example report.
+A pushed `v*` tag must exactly match the non-SNAPSHOT Maven version. The workflow rebuilds and tests the artifact, generates Javadoc and a CycloneDX SBOM, publishes the GHCR image, signs its digest, scans it, attests release files/image, and creates a GitHub Release with checksums and the example report. The [v1.0.0 release](https://github.com/SheltonSB/OPA/releases/tag/v1.0.0) is the first verified public release; its assets are the concrete supply-chain and benchmark evidence for this repository.
 
 The Maven output timestamp is fixed and the CycloneDX serial number is omitted because a random BOM UUID made the executable JAR nondeterministic. Two clean local package builds from the corrected release source both produced SHA-256 `9157d840059a09b0038c87eaeb80377f983f5e0ed19d2ed28f540b49b43caff3`. A different source revision is expected to produce a different digest.
 
