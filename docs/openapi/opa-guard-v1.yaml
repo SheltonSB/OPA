@@ -1,0 +1,198 @@
+openapi: 3.1.0
+info:
+  title: OPA Policy Performance Guard API
+  version: 1.0.0
+  description: Multi-tenant asynchronous benchmark coordination API. All mutations require an idempotency key.
+servers:
+  - url: https://opa-guard.example.com
+security:
+  - bearerAuth: [benchmark.run]
+paths:
+  /api/v1/organizations/{organizationId}/policy-versions:
+    post:
+      operationId: registerPolicyVersion
+      summary: Register immutable policy artifact metadata after content upload
+      security: [{bearerAuth: [artifact.write]}]
+      parameters: [{$ref: '#/components/parameters/OrganizationId'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/PolicyVersionRequest'}}}
+      responses:
+        '201': {description: Registered immutable policy version}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/v1/organizations/{organizationId}/dataset-versions:
+    post:
+      operationId: registerDatasetVersion
+      summary: Register immutable dataset artifact metadata after content upload
+      security: [{bearerAuth: [artifact.write]}]
+      parameters: [{$ref: '#/components/parameters/OrganizationId'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/DatasetVersionRequest'}}}
+      responses:
+        '201': {description: Registered immutable dataset version}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/v1/organizations/{organizationId}/benchmark-jobs:
+    post:
+      operationId: createBenchmarkJob
+      summary: Queue a benchmark comparing immutable policy and dataset versions
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateBenchmarkJobRequest'}
+      responses:
+        '202':
+          description: Accepted, or the original job for a repeated idempotency key
+          headers:
+            Location: {schema: {type: string, format: uri-reference}}
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/BenchmarkJob'}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/v1/organizations/{organizationId}/benchmark-jobs/{jobId}:
+    get:
+      operationId: getBenchmarkJob
+      summary: Read benchmark job status
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+        - name: jobId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Job state
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/BenchmarkJob'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/organizations/{organizationId}/benchmark-jobs/{jobId}/report:
+    get:
+      operationId: getBenchmarkReport
+      summary: Retrieve a completed report
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+        - {name: jobId, in: path, required: true, schema: {type: string, format: uuid}}
+        - {name: format, in: query, required: false, schema: {type: string, enum: [json, markdown, html], default: json}}
+      responses:
+        '200':
+          description: Report in the requested representation
+          content:
+            application/json: {schema: {type: object}}
+            text/markdown: {schema: {type: string}}
+            text/html: {schema: {type: string}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://identity.example.com/oauth2/token
+          scopes:
+            benchmark.run: Submit and read benchmarks
+            artifact.write: Register uploaded immutable artifacts
+  parameters:
+    OrganizationId:
+      name: organizationId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  schemas:
+    PolicyVersionRequest:
+      type: object
+      additionalProperties: false
+      required: [repository, gitCommit, objectKey, sha256, query]
+      properties:
+        repository: {type: string, pattern: '^[A-Za-z0-9._:/-]{1,512}$'}
+        gitCommit: {type: string, pattern: '^[0-9a-f]{40}$'}
+        objectKey: {type: string, pattern: '^[a-f0-9]{64}(/[A-Za-z0-9._-]{1,128})?$'}
+        sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
+        query: {type: string, pattern: '^data(\.[A-Za-z_][A-Za-z0-9_-]*)+$'}
+    DatasetVersionRequest:
+      type: object
+      additionalProperties: false
+      required: [objectKey, sha256, caseCount, sizeBytes]
+      properties:
+        objectKey: {type: string, pattern: '^[a-f0-9]{64}(/[A-Za-z0-9._-]{1,128})?$'}
+        sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
+        caseCount: {type: integer, minimum: 1, maximum: 100000}
+        sizeBytes: {type: integer, minimum: 1, maximum: 67108864}
+    CreateBenchmarkJobRequest:
+      type: object
+      additionalProperties: false
+      required: [baselineVersionId, candidateVersionId, datasetVersionId, warmupIterations, measuredIterations, thresholds]
+      properties:
+        baselineVersionId: {type: string, format: uuid}
+        candidateVersionId: {type: string, format: uuid}
+        historicalVersionId: {type: [string, 'null'], format: uuid}
+        datasetVersionId: {type: string, format: uuid}
+        warmupIterations: {type: integer, minimum: 0, maximum: 10000}
+        measuredIterations: {type: integer, minimum: 1, maximum: 1000000}
+        thresholds: {$ref: '#/components/schemas/Thresholds'}
+    Thresholds:
+      type: object
+      additionalProperties: false
+      required:
+        - maximumAverageLatencyRegressionPercent
+        - maximumP95LatencyRegressionPercent
+        - maximumP99LatencyRegressionPercent
+        - maximumP999LatencyRegressionPercent
+        - maximumMemoryRegressionPercent
+        - maximumAllocationRateRegressionPercent
+        - maximumScalabilitySlopeRegressionPercent
+        - failOnDecisionChange
+      properties:
+        maximumAverageLatencyRegressionPercent: {$ref: '#/components/schemas/Percentage'}
+        maximumP95LatencyRegressionPercent: {$ref: '#/components/schemas/Percentage'}
+        maximumP99LatencyRegressionPercent: {$ref: '#/components/schemas/Percentage'}
+        maximumP999LatencyRegressionPercent: {$ref: '#/components/schemas/Percentage'}
+        maximumMemoryRegressionPercent: {$ref: '#/components/schemas/Percentage'}
+        maximumAllocationRateRegressionPercent: {$ref: '#/components/schemas/Percentage'}
+        maximumScalabilitySlopeRegressionPercent: {$ref: '#/components/schemas/Percentage'}
+        failOnDecisionChange: {type: boolean}
+    Percentage: {type: number, minimum: 0, maximum: 10000}
+    BenchmarkJob:
+      type: object
+      required: [id, organizationId, status, baselineVersionId, candidateVersionId, datasetVersionId, createdAt, updatedAt]
+      properties:
+        id: {type: string, format: uuid}
+        organizationId: {type: string, format: uuid}
+        status: {type: string, enum: [QUEUED, RUNNING, ANALYZING, PASSED, FAILED, ERROR, CANCELLED]}
+        baselineVersionId: {type: string, format: uuid}
+        candidateVersionId: {type: string, format: uuid}
+        historicalVersionId: {type: [string, 'null'], format: uuid}
+        datasetVersionId: {type: string, format: uuid}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    Problem:
+      type: object
+      properties:
+        type: {type: string, format: uri}
+        title: {type: string}
+        status: {type: integer}
+        detail: {type: string}
+  responses:
+    BadRequest: {description: Invalid request, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+    Unauthorized: {description: Missing or invalid bearer token, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+    Forbidden: {description: Tenant or scope mismatch, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+    NotFound: {description: Tenant-scoped resource not found, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+    RateLimited: {description: Organization admission limit reached, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+    Unavailable: {description: A required dependency is unavailable, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}

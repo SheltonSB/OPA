@@ -40,7 +40,7 @@ jobs:
       - name: Set up OPA
         uses: open-policy-agent/setup-opa@v2
         with:
-          version: 1.4.2
+          version: 1.16.2
 
       - name: Build guard
         working-directory: candidate

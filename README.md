@@ -2,6 +2,19 @@
 
 OPA Policy Performance Guard is a Java 21 command-line tool that detects Open Policy Agent (OPA) performance and correctness regressions in pull requests. It runs the same JSON inputs against the main-branch and candidate Rego policies, fails when configured thresholds are exceeded, and emits Markdown and JSON reports.
 
+It also contains the production distributed platform: independently deployable coordinator, worker, and analyzer roles backed by PostgreSQL, Redis, and Kafka. The same artifact retains a hermetic `cli` mode for repositories that do not use the service.
+
+Production design documents:
+
+- [Distributed architecture, package/class/sequence diagrams, schema, Kafka, and deployment](docs/ARCHITECTURE.md)
+- [Threat model and security findings with CVSS/exploit/fix evidence](docs/SECURITY.md)
+- [10-billion-evaluations/day capacity and performance analysis](docs/PERFORMANCE.md)
+- [OpenAPI 3.1 contract](docs/openapi/opa-guard-v1.yaml)
+- [AsyncAPI Kafka contract](docs/asyncapi/opa-guard-events.yaml)
+- [Kubernetes manifests](deploy/kubernetes)
+- [Grafana dashboard](observability/grafana/dashboards/opa-guard-overview.json)
+- [CI/CD, supply-chain, canary, and rollback design](docs/CICD.md)
+
 ## What it measures
 
 - Average, p95, and p99 end-to-end `opa eval` latency
@@ -102,6 +115,50 @@ The included [GitHub Actions workflow](.github/workflows/opa-policy-performance-
 - fails the required check when the guard returns a non-zero result.
 
 The example workflow expects policies under `policy/` and the dataset at `benchmark/dataset.json`. Change the three `--opa-guard.*-policy/dataset` options if the repository uses different paths. For security, comments are skipped for fork-originated pull requests, where the default GitHub token is read-only; the workflow summary and artifact are still produced.
+
+Equivalent pipelines are provided for [GitLab](.gitlab-ci.yml), [Jenkins](Jenkinsfile), and [Azure DevOps](azure-pipelines.yml).
+
+## Distributed platform
+
+Build the OCI image with the pinned OPA runtime:
+
+```bash
+docker build -t opa-guard:1.0.0 .
+```
+
+The runtime role is selected with `OPA_GUARD_MODE`:
+
+| Mode | Responsibility |
+|---|---|
+| `coordinator` | Authenticated REST API, tenant admission, idempotent job/outbox creation |
+| `worker` | Kafka consumption, artifact integrity checks, OPA execution, incremental result publication |
+| `analyzer` | Main/PR/history regression analysis and report persistence/publication |
+| `cli` | Local synchronous CI gate; the default for backward compatibility |
+
+For a local dependency topology, create external secrets and run Compose:
+
+```bash
+export POSTGRES_PASSWORD='use-a-local-secret-manager'
+export REDIS_PASSWORD='use-a-local-secret-manager'
+export GRAFANA_ADMIN_PASSWORD='use-a-local-secret-manager'
+export OPA_GUARD_JWK_SET_URI='https://your-idp.example/.well-known/jwks.json'
+export PROMETHEUS_TOKEN_FILE='/absolute/path/to/a-valid-metrics-reader-jwt-file'
+docker compose up --build
+```
+
+Compose is a developer topology: Kafka, PostgreSQL, and Redis are single-node. Production uses managed multi-AZ services and the manifests in `deploy/kubernetes`. Before applying those manifests:
+
+1. Replace example hostnames and image references with an image digest.
+2. Create `opa-guard-secrets` through External Secrets or a cloud secret CSI driver. Required keys are `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, `SPRING_DATA_REDIS_PASSWORD`, and Kafka SASL credentials.
+3. Provide the `object-storage-csi` class as an immutable, read-only artifact snapshot.
+4. Label dependency and monitoring namespaces to satisfy the default-deny network policies.
+5. Configure gateway OIDC, WAF, global quotas, mTLS, and a metrics-reader JWT.
+
+```bash
+kubectl apply -k deploy/kubernetes
+```
+
+The coordinator API returns `202 Accepted`; callers poll the job resource or consume the CI connector result. API and event schemas are versioned under `docs/`.
 
 ## Report semantics
 

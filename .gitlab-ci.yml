@@ -1,0 +1,37 @@
+stages: [test, benchmark]
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
+
+cache:
+  paths: [.m2/repository]
+
+test:
+  image: maven:3.9.11-eclipse-temurin-21
+  stage: test
+  script: ["mvn --batch-mode --no-transfer-progress verify"]
+
+opa-policy-guard:
+  image: maven:3.9.11-eclipse-temurin-21
+  stage: benchmark
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
+    - curl -fsSLo /usr/local/bin/opa https://openpolicyagent.org/downloads/v1.16.2/opa_linux_amd64_static
+    - echo '4ab4b89c131e6df3fed28b0b164083b6641ad67c86ab4c12d417ecfb93838ef1  /usr/local/bin/opa' | sha256sum -c -
+    - chmod 0755 /usr/local/bin/opa
+    - git fetch origin "$CI_MERGE_REQUEST_DIFF_BASE_SHA"
+    - git worktree add --detach .opa-guard-baseline "$CI_MERGE_REQUEST_DIFF_BASE_SHA"
+  script:
+    - mvn --batch-mode --no-transfer-progress -DskipTests package
+    - >-
+      java -jar target/opa-policy-performance-guard-*.jar
+      --spring.config.additional-location=file:opa-guard.yml
+      --opa-guard.baseline-policy=.opa-guard-baseline/policy
+      --opa-guard.candidate-policy=policy
+      --opa-guard.benchmark-dataset=benchmark/dataset.json
+  artifacts:
+    when: always
+    paths: [build/reports/opa-guard.md, build/reports/opa-guard.json]
+    reports: {dotenv: build/reports/opa-guard.env}

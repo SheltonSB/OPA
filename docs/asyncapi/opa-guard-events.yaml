@@ -1,0 +1,57 @@
+asyncapi: 3.0.0
+info: {title: OPA Guard Event API, version: 1.0.0}
+defaultContentType: application/json
+channels:
+  jobRequested:
+    address: opa.guard.benchmark-job-requested.v1
+    messages: {jobRequested: {$ref: '#/components/messages/JobRequested'}}
+  executionCompleted:
+    address: opa.guard.benchmark-shard-completed.v1
+    messages: {executionCompleted: {$ref: '#/components/messages/ExecutionCompleted'}}
+  analysisCompleted:
+    address: opa.guard.analysis-completed.v1
+    messages: {analysisCompleted: {$ref: '#/components/messages/AnalysisCompleted'}}
+  deadLetter:
+    address: opa.guard.dead-letter.v1
+    messages: {deadLetter: {$ref: '#/components/messages/DeadLetter'}}
+operations:
+  receiveJob:
+    action: receive
+    channel: {$ref: '#/channels/jobRequested'}
+  publishExecution:
+    action: send
+    channel: {$ref: '#/channels/executionCompleted'}
+  receiveExecution:
+    action: receive
+    channel: {$ref: '#/channels/executionCompleted'}
+  publishAnalysis:
+    action: send
+    channel: {$ref: '#/channels/analysisCompleted'}
+components:
+  messages:
+    JobRequested:
+      name: BenchmarkJobRequested
+      correlationId: {location: $message.payload#/jobId}
+      payload: {$ref: '#/components/schemas/EventEnvelope'}
+    ExecutionCompleted:
+      name: BenchmarkExecutionCompleted
+      correlationId: {location: $message.payload#/jobId}
+      payload: {$ref: '#/components/schemas/EventEnvelope'}
+    AnalysisCompleted:
+      name: BenchmarkJobCompleted
+      correlationId: {location: $message.payload#/jobId}
+      payload: {$ref: '#/components/schemas/EventEnvelope'}
+    DeadLetter:
+      name: FailedEvent
+      payload: {type: object, additionalProperties: true}
+  schemas:
+    EventEnvelope:
+      type: object
+      required: [eventId, jobId, organizationId, occurredAt, schemaVersion]
+      properties:
+        eventId: {type: string, format: uuid}
+        jobId: {type: string, format: uuid}
+        organizationId: {type: string, format: uuid}
+        occurredAt: {type: string, format: date-time}
+        schemaVersion: {type: integer, const: 1}
+      additionalProperties: true

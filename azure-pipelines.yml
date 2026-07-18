@@ -1,0 +1,28 @@
+trigger: [main]
+pr: {branches: {include: ['*']}}
+
+pool: {vmImage: ubuntu-latest}
+steps:
+  - checkout: self
+    fetchDepth: 0
+  - task: JavaToolInstaller@0
+    inputs: {versionSpec: '21', jdkArchitectureOption: x64, jdkSourceOption: PreInstalled}
+  - script: mvn --batch-mode --no-transfer-progress verify
+    displayName: Verify
+  - script: |
+      mkdir -p .tools
+      curl -fsSLo .tools/opa https://openpolicyagent.org/downloads/v1.16.2/opa_linux_amd64_static
+      echo '4ab4b89c131e6df3fed28b0b164083b6641ad67c86ab4c12d417ecfb93838ef1  .tools/opa' | sha256sum -c -
+      chmod 0755 .tools/opa
+      git worktree add --detach .opa-guard-baseline "$(System.PullRequest.TargetBranch)"
+      java -jar target/opa-policy-performance-guard-*.jar \
+        --spring.config.additional-location=file:opa-guard.yml \
+        --opa-guard.opa-executable=.tools/opa \
+        --opa-guard.baseline-policy=.opa-guard-baseline/policy \
+        --opa-guard.candidate-policy=policy \
+        --opa-guard.benchmark-dataset=benchmark/dataset.json
+    displayName: OPA Policy Performance Guard
+    condition: eq(variables['Build.Reason'], 'PullRequest')
+  - task: PublishBuildArtifacts@1
+    condition: always()
+    inputs: {PathtoPublish: build/reports, ArtifactName: opa-guard-report}
