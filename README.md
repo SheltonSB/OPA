@@ -161,6 +161,25 @@ Build the OCI image with the pinned OPA runtime:
 docker build -t opa-guard:1.0.0 .
 ```
 
+Run a short Dockerized smoke benchmark (the image bundles OPA, so no host OPA
+binary is needed):
+
+```bash
+docker run --rm -w /workspace \
+  --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  -v "$PWD/policy:/workspace/policy:ro" \
+  -v "$PWD/benchmark:/workspace/benchmark:ro" \
+  opa-guard:1.0.0 \
+  --spring.main.web-application-type=none \
+  --opa-guard.baseline-policy=policy \
+  --opa-guard.candidate-policy=policy \
+  --opa-guard.benchmark-dataset=benchmark/dataset.json \
+  --opa-guard.minimum-iterations=1 \
+  --opa-guard.warmup-iterations=0 \
+  --opa-guard.markdown-output=/tmp/opa-guard-smoke.md \
+  --opa-guard.json-output=/tmp/opa-guard-smoke.json
+```
+
 The runtime role is selected with `OPA_GUARD_MODE`:
 
 | Mode | Responsibility |
