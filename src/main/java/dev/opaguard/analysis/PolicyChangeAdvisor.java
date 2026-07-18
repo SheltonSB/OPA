@@ -12,10 +12,27 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+/**
+ * Produces actionable, deterministic advice for a failed policy comparison.
+ *
+ * <p>The advisor uses correctness results and a deliberately conservative Rego
+ * source heuristic. Its output is guidance, not a substitute for OPA profiling.</p>
+ *
+ * @author Shelton Bumhe
+ */
 @Component
 public class PolicyChangeAdvisor {
     private static final Pattern ARRAY_TRAVERSAL = Pattern.compile("\\bsome\\s+\\w+\\s+in\\s+|\\[[_a-zA-Z][^]]*]", Pattern.MULTILINE);
 
+    /**
+     * Explains the most likely cause of a failed comparison.
+     *
+     * @param baseline baseline policy file or directory
+     * @param candidate candidate policy file or directory
+     * @param mismatches decision differences found by the analyzer
+     * @param performanceRegression whether a performance threshold was exceeded
+     * @return advice suitable for human-readable reports
+     */
     public Advice advise(Path baseline, Path candidate, List<DecisionMismatch> mismatches, boolean performanceRegression) {
         if (!mismatches.isEmpty() && !performanceRegression) {
             return new Advice(
@@ -58,7 +75,19 @@ public class PolicyChangeAdvisor {
         }
     }
 
+    /**
+     * Human-readable diagnosis and recommended remediation.
+     *
+     * @param cause concise description of the detected condition
+     * @param recommendation suggested next action
+     * @author Shelton Bumhe
+     */
     public record Advice(String cause, String recommendation) {
+        /**
+         * Returns neutral advice for a successful comparison.
+         *
+         * @return a no-action-required result
+         */
         public static Advice none() {
             return new Advice("None", "No action required.");
         }
