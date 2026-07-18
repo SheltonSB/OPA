@@ -14,10 +14,20 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
 
+/**
+ * Renders reports as GitHub-compatible Markdown with escaped untrusted values.
+ *
+ * @author Shelton Bumhe
+ */
 @Component
 public class MarkdownReportWriter implements ReportWriter {
     private final ObjectMapper objectMapper;
 
+    /**
+     * Creates a Markdown writer.
+     *
+     * @param objectMapper mapper used to render decision values
+     */
     public MarkdownReportWriter(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -32,6 +42,12 @@ public class MarkdownReportWriter implements ReportWriter {
         }
     }
 
+    /**
+     * Renders a self-contained pull-request summary.
+     *
+     * @param report report to render
+     * @return GitHub-flavored Markdown
+     */
     public String render(GuardReport report) {
         String icon = report.passed() ? "✅" : "❌";
         StringBuilder markdown = new StringBuilder()
@@ -51,12 +67,16 @@ public class MarkdownReportWriter implements ReportWriter {
         BenchmarkMetrics main = report.baseline().metrics();
         BenchmarkMetrics candidate = report.candidate().metrics();
         markdown.append("\n### Additional metrics\n\n")
-                .append("| Branch | Throughput (ops/s) | Avg CPU (ms) | Samples |\n")
-                .append("|---|---:|---:|---:|\n")
+                .append("| Branch | Throughput (ops/s) | Avg CPU (ms) | CPU utilization | Allocation rate | GC pause | Samples |\n")
+                .append("|---|---:|---:|---:|---:|---:|---:|\n")
                 .append("| Main | ").append(format(main.throughputPerSecond())).append(" | ")
-                .append(format(main.averageCpuMillis())).append(" | ").append(main.sampleCount()).append(" |\n")
+                .append(format(main.averageCpuMillis())).append(" | ").append(format(main.cpuUtilizationPercent())).append("% | ")
+                .append(format(main.allocationRateBytesPerSecond())).append(" B/s | ").append(format(main.gcPauseMillis())).append(" ms | ")
+                .append(main.sampleCount()).append(" |\n")
                 .append("| PR | ").append(format(candidate.throughputPerSecond())).append(" | ")
-                .append(format(candidate.averageCpuMillis())).append(" | ").append(candidate.sampleCount()).append(" |\n");
+                .append(format(candidate.averageCpuMillis())).append(" | ").append(format(candidate.cpuUtilizationPercent())).append("% | ")
+                .append(format(candidate.allocationRateBytesPerSecond())).append(" B/s | ").append(format(candidate.gcPauseMillis())).append(" ms | ")
+                .append(candidate.sampleCount()).append(" |\n");
 
         if (report.decisionMismatches().isEmpty()) {
             markdown.append("\n**Decision correctness:** PASS — all benchmark decisions are identical.\n");
@@ -88,8 +108,14 @@ public class MarkdownReportWriter implements ReportWriter {
     }
 
     private static String value(String metric, double value) {
+        if (metric.contains("bytes/s")) {
+            return format(value / (1024d * 1024d)) + " MiB/s";
+        }
         if (metric.contains("bytes")) {
             return format(value / (1024d * 1024d)) + " MiB";
+        }
+        if (metric.contains("slope")) {
+            return format(value);
         }
         return format(value) + " ms";
     }
