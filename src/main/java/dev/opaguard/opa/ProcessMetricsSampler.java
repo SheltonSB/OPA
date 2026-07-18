@@ -7,6 +7,14 @@ import java.time.Duration;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/**
+ * Samples child-process CPU time and resident memory with bounded lifecycle overhead.
+ *
+ * <p>Sampling is best effort because a short-lived OPA process may terminate
+ * between process discovery and operating-system metric reads.</p>
+ *
+ * @author Shelton Bumhe
+ */
 final class ProcessMetricsSampler implements AutoCloseable {
     private final Process process;
     private final AtomicBoolean running = new AtomicBoolean(true);
@@ -27,7 +35,7 @@ final class ProcessMetricsSampler implements AutoCloseable {
         while (running.get() && process.isAlive()) {
             sample();
             try {
-                Thread.sleep(Duration.ofMillis(5));
+                Thread.sleep(Duration.ofMillis(25));
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 return;
@@ -55,7 +63,7 @@ final class ProcessMetricsSampler implements AutoCloseable {
         }
     }
 
-    private static long currentRssBytes(long pid) throws IOException {
+    static long currentRssBytes(long pid) throws IOException {
         Path procStatus = Path.of("/proc", Long.toString(pid), "status");
         if (Files.isReadable(procStatus)) {
             return Files.readAllLines(procStatus).stream()
@@ -69,7 +77,9 @@ final class ProcessMetricsSampler implements AutoCloseable {
         }
 
         if (System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("mac")) {
-            Process ps = new ProcessBuilder("ps", "-o", "rss=", "-p", Long.toString(pid)).start();
+            Path psExecutable = Files.isExecutable(Path.of("/bin/ps")) ? Path.of("/bin/ps") : Path.of("/usr/bin/ps");
+            if (!Files.isExecutable(psExecutable)) return 0L;
+            Process ps = new ProcessBuilder(psExecutable.toString(), "-o", "rss=", "-p", Long.toString(pid)).start();
             try {
                 if (!ps.waitFor(1, java.util.concurrent.TimeUnit.SECONDS)) {
                     ps.destroyForcibly();
@@ -79,7 +89,7 @@ final class ProcessMetricsSampler implements AutoCloseable {
                 Thread.currentThread().interrupt();
                 return 0L;
             }
-            String rss = new String(ps.getInputStream().readAllBytes()).trim();
+            String rss = new String(ps.getInputStream().readNBytes(1024)).trim();
             return rss.isBlank() ? 0L : Long.parseLong(rss) * 1024L;
         }
         return 0L;

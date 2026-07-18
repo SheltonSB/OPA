@@ -15,13 +15,30 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Isolated {@link PolicyEvaluator} that invokes a fresh {@code opa eval} process per sample.
+ *
+ * <p>Commands are constructed as argument lists, policy roots and queries are
+ * validated, output is bounded, and timed-out process trees are terminated.</p>
+ *
+ * @author Shelton Bumhe
+ */
 @Component
 public class OpaCliEvaluator implements PolicyEvaluator {
+    static final int MAX_PROCESS_OUTPUT_BYTES = 16 * 1024 * 1024;
     private final ObjectMapper objectMapper;
     private final String executable;
 
+    /**
+     * Creates an OPA CLI adapter.
+     *
+     * @param objectMapper constrained JSON mapper
+     * @param properties application configuration containing the trusted executable
+     */
     public OpaCliEvaluator(ObjectMapper objectMapper, GuardProperties properties) {
         this.objectMapper = objectMapper;
         this.executable = properties.opaExecutable();
@@ -29,30 +46,31 @@ public class OpaCliEvaluator implements PolicyEvaluator {
 
     @Override
     public Measurement evaluate(Path policyPath, String query, JsonNode input, Duration timeout) {
-        validatePolicyPath(policyPath);
+        Path validatedPolicyPath = validatePolicyPath(policyPath);
+        validateQuery(query);
         List<String> command = List.of(
                 executable, "eval",
                 "--format=json",
-                "--data", policyPath.toAbsolutePath().normalize().toString(),
+                "--data", validatedPolicyPath.toString(),
                 "--stdin-input",
                 query);
 
         long startedAt = System.nanoTime();
         Process process = null;
-        try {
+        try (ExecutorService ioExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             process = new ProcessBuilder(command).start();
             Process activeProcess = process;
             CompletableFuture<byte[]> stdout = CompletableFuture.supplyAsync(
-                    () -> readAll(activeProcess.getInputStream()));
+                    () -> readBounded(activeProcess.getInputStream()), ioExecutor);
             CompletableFuture<byte[]> stderr = CompletableFuture.supplyAsync(
-                    () -> readAll(activeProcess.getErrorStream()));
+                    () -> readBounded(activeProcess.getErrorStream()), ioExecutor);
 
             try (ProcessMetricsSampler sampler = new ProcessMetricsSampler(process)) {
                 objectMapper.writeValue(process.getOutputStream(), input);
                 process.getOutputStream().close();
 
                 if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
-                    process.destroyForcibly();
+                    terminateProcessTree(process);
                     throw new GuardException("OPA evaluation timed out after " + timeout.toSeconds() + " seconds");
                 }
 
@@ -68,7 +86,7 @@ public class OpaCliEvaluator implements PolicyEvaluator {
             throw exception;
         } catch (Exception exception) {
             if (process != null && process.isAlive()) {
-                process.destroyForcibly();
+                terminateProcessTree(process);
             }
             throw new GuardException("Unable to execute OPA command '" + executable + "': " + exception.getMessage(), exception);
         }
@@ -83,17 +101,55 @@ public class OpaCliEvaluator implements PolicyEvaluator {
         return expressions.path(0).path("value");
     }
 
-    private static byte[] readAll(java.io.InputStream stream) {
+    private static byte[] readBounded(java.io.InputStream stream) {
         try {
-            return stream.readAllBytes();
+            byte[] bytes = stream.readNBytes(MAX_PROCESS_OUTPUT_BYTES + 1);
+            if (bytes.length > MAX_PROCESS_OUTPUT_BYTES) {
+                throw new GuardException("OPA output exceeded the 16 MiB safety limit");
+            }
+            return bytes;
         } catch (IOException exception) {
             throw new GuardException("Failed to capture OPA output", exception);
         }
     }
 
-    private static void validatePolicyPath(Path policyPath) {
+    private static Path validatePolicyPath(Path policyPath) {
         if (policyPath == null || !Files.exists(policyPath)) {
             throw new GuardException("Policy path does not exist: " + policyPath);
+        }
+        try {
+            if (Files.isSymbolicLink(policyPath)) {
+                throw new GuardException("Symbolic links are not accepted as policy roots: " + policyPath);
+            }
+            if (Files.isDirectory(policyPath)) {
+                try (var paths = Files.walk(policyPath)) {
+                    if (paths.anyMatch(Files::isSymbolicLink)) {
+                        throw new GuardException("Policy trees must not contain symbolic links: " + policyPath);
+                    }
+                }
+            }
+            return policyPath.toRealPath();
+        } catch (IOException exception) {
+            throw new GuardException("Unable to resolve policy path: " + policyPath, exception);
+        }
+    }
+
+    private static void validateQuery(String query) {
+        if (query == null || !query.matches("data(?:\\.[A-Za-z_][A-Za-z0-9_-]*)+")) {
+            throw new GuardException("OPA query must be a fully qualified data path");
+        }
+    }
+
+    private static void terminateProcessTree(Process process) {
+        process.descendants().forEach(handle -> {
+            handle.destroy();
+            if (handle.isAlive()) {
+                handle.destroyForcibly();
+            }
+        });
+        process.destroy();
+        if (process.isAlive()) {
+            process.destroyForcibly();
         }
     }
 }
