@@ -1,8 +1,8 @@
 # Security assessment and threat model
 
-Assessment date: 2026-07-17. CVSS values are CVSS 3.1 base estimates unless an upstream score is cited. The review covers source, configuration, container, Kubernetes, dependency, and event trust boundaries. A passing automated scan is not a substitute for an independent penetration test before handling regulated policies.
+Assessment date: 2026-07-18. CVSS values are CVSS 3.1 base estimates unless an upstream score is cited. The review covers source, configuration, container, Kubernetes, dependency, and event trust boundaries. A passing automated scan is not a substitute for an independent penetration test before handling regulated policies.
 
-Local dependency-scan status: the CycloneDX SBOM was generated successfully with 126 components. OWASP Dependency Check was started but its unauthenticated NVD synchronization required 367,091 records and was stopped at 3%; therefore no claim of a clean vulnerability scan is made. The release workflow supplies `NVD_API_KEY`, fails at CVSS 7.0, and archives the report. Spring Boot's known 2026 issue identified during manual review was fixed as SEC-001.
+Local dependency-scan status: the CycloneDX SBOM was generated successfully. An earlier OWASP Dependency Check attempt could not complete its unauthenticated NVD synchronization, so no clean local vulnerability-scan claim is made. Pull requests use GitHub dependency review; CI and release workflows scan OCI images with Trivy. The release workflow signs and attests artifacts, but its first successful public run remains the evidence boundary. Spring Boot's known 2026 issue identified during manual review was fixed as SEC-001.
 
 ## Assets and adversaries
 
@@ -52,7 +52,7 @@ Trust boundaries are the public gateway, tenant JWT boundary, Kafka topics, Post
 | Null risks | Required constructor fields use validation/`requireNonNull`; optional history is explicit and branches are guarded. Undefined OPA decisions become JSON null. |
 | Temporary files | Application does not create predictable temporary policy files. Containers use size-limited `tmpfs` with `noexec,nosuid`; artifacts are immutable mounts. |
 | Secrets in source | No passwords, tokens, or private keys are committed. Compose requires external values; Kubernetes references a non-committed secret. Sample hostnames are not credentials. |
-| Dependency vulnerabilities | Spring Boot upgraded; CycloneDX SBOM is generated at package; OWASP Dependency Check is configured at CVSS 7; CI should also run CodeQL and container scanning. |
+| Dependency vulnerabilities | Spring Boot upgraded; CycloneDX SBOM is generated at package; Dependabot, GitHub dependency review, CodeQL, and Trivy workflows are configured. A successful workflow run is still required before claiming a clean scan. |
 | Insecure logging | No policy input, decision, bearer token, JDBC URL credential, or event payload is logged by application code. Incident IDs correlate restricted logs. |
 | Input validation | Bean Validation, UUID types, bounded percentages/iterations, idempotency length, query grammar, JSON constraints, digest/key grammar. |
 | Output encoding | Dedicated encoders for HTML/Markdown; Jackson emits JSON. API uses Problem Details, never string-built JSON. |
@@ -63,11 +63,11 @@ Trust boundaries are the public gateway, tenant JWT boundary, Kafka topics, Post
 |---|---|---:|---|
 | R-001 | POSIX path validation and open are not atomic; a privileged storage actor could swap an inode after hashing. | Medium | Mount versioned object-store snapshots read-only, prohibit mutable shared POSIX writers, and preferably pass an already-open directory/file descriptor to a sandbox launcher. |
 | R-002 | The included filesystem artifact adapter is suitable for CSI snapshots, not direct Internet object retrieval. | Medium | Use a cloud object-store adapter with private endpoints, workload identity, version IDs, checksum validation, and no caller-supplied URL. |
-| R-003 | CLI mode cannot obtain Go allocation and GC metrics from one-shot `opa eval`; it reports them unavailable/zero. | Low | Production workers use long-lived OPA runtime pools and scrape Go/cgroup deltas. Do not gate those metrics from CLI mode. |
+| R-003 | CLI mode cannot obtain Go allocation and GC metrics from one-shot `opa eval`; it reports them unavailable/zero. | Low | Worker mode has a long-lived OPA pool and Go-metric parsing, but it is prototype status. Do not gate unavailable metrics from CLI mode; validate cgroup/Go telemetry in the target runtime before production use. |
 | R-004 | Multi-region asynchronous failover can replay events and lose the last replication window. | Medium | Use event IDs/idempotent consumers, mirror topics, regularly test failover, and offer synchronous DR for RPO-zero tenants. |
 | R-005 | A malicious but valid Rego policy can consume its entire CPU/memory budget. | Medium | One job per sandbox, cgroup quotas, OPA timeout, evaluation budget, queue fairness, and artifact quarantine after repeated crashes. |
 | R-006 | Third-party CI actions and container base images are supply-chain dependencies. | High | Pin actions/images by immutable digest, verify signatures, generate SLSA provenance, scan on promotion, and enforce admission policy. The checked-in examples use readable version tags and must be digest-pinned by the release pipeline. |
 
 ## Security verification gates
 
-Required release gates are unit/integration tests, CodeQL, OWASP Dependency Check with CVSS ≥7 failure, Trivy/Grype image scanning, SBOM generation, secret scanning, Rego/Kubernetes policy checks, signed provenance, and a quarterly threat-model review. A dedicated test environment should run ZAP against the coordinator, tenant-isolation property tests against PostgreSQL RLS, Kafka duplicate/reorder chaos tests, and container-escape validation under the production runtime class.
+Implemented release gates are unit/integration tests, CodeQL, GitHub dependency review, Trivy image scanning, SBOM generation, keyless signing, and attestations. Recommended additional production gates are secret scanning, Rego/Kubernetes policy checks, ZAP against the coordinator, tenant-isolation property tests, Kafka duplicate/reorder chaos, container-escape validation, and a quarterly independent threat-model review.

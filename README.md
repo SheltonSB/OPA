@@ -1,27 +1,48 @@
 # OPA Policy Performance Guard
 
+[![CI](https://github.com/SheltonSB/OPA/actions/workflows/platform-ci.yml/badge.svg)](https://github.com/SheltonSB/OPA/actions/workflows/platform-ci.yml)
+[![CodeQL](https://github.com/SheltonSB/OPA/actions/workflows/codeql.yml/badge.svg)](https://github.com/SheltonSB/OPA/actions/workflows/codeql.yml)
+[![Tests](docs/badges/tests.svg)](docs/TEST_EVIDENCE.md)
+[![Coverage](docs/badges/coverage.svg)](docs/TEST_EVIDENCE.md)
+[![Release](https://img.shields.io/github/v/release/SheltonSB/OPA)](https://github.com/SheltonSB/OPA/releases/tag/v1.0.0)
+
 OPA Policy Performance Guard is a Java 21 command-line tool that detects Open Policy Agent (OPA) performance and correctness regressions in pull requests. It runs the same JSON inputs against the main-branch and candidate Rego policies, fails when configured thresholds are exceeded, and emits Markdown and JSON reports.
 
-It also contains the production distributed platform: independently deployable coordinator, worker, and analyzer roles backed by PostgreSQL, Redis, and Kafka. The same artifact retains a hermetic `cli` mode for repositories that do not use the service.
+The repository also contains a distributed-platform prototype with independently deployable coordinator, worker, and analyzer roles backed by PostgreSQL, Redis, and Kafka. The CLI is the release-grade path in v1.0.0; the distributed roles have executable code and integration tests but are not represented as production-proven at internet scale.
+
+## Delivery status
+
+| Status | Scope |
+|---|---|
+| **Implemented and tested** | CLI comparison, paired run-order balancing, exact decision comparison, Markdown/JSON/HTML writers, PostgreSQL idempotency and worker leases, transactional outbox, Kafka redelivery test, Redis fail-open/fail-closed behavior, CI, CodeQL, SBOM generation, container scanning, and release signing workflow |
+| **Prototype** | Distributed coordinator/worker/analyzer deployment, Kubernetes manifests, Grafana dashboard, long-lived platform operation, and external CI connectors beyond the supplied pipeline examples |
+| **Future architecture / capacity model** | 5,000 simultaneous jobs, 10 billion evaluations/day, active multi-region failover, petabyte historical storage, sustained soak evidence, and external adopter evidence |
+
+No claim in the future row has been load-tested. See the [component guide](docs/COMPONENT_GUIDE.md), [measured local evidence](docs/PERFORMANCE_RESULTS.md), and [capacity model](docs/PERFORMANCE.md) for the boundary between code, tests, and design.
 
 Production design documents:
 
 - [Distributed architecture, package/class/sequence diagrams, schema, Kafka, and deployment](docs/ARCHITECTURE.md)
 - [Threat model and security findings with CVSS/exploit/fix evidence](docs/SECURITY.md)
-- [10-billion-evaluations/day capacity and performance analysis](docs/PERFORMANCE.md)
+- [Measured benchmark evidence and reproduction details](docs/PERFORMANCE_RESULTS.md)
+- [10-billion-evaluations/day capacity model (not a load-test result)](docs/PERFORMANCE.md)
+- [v1 component ownership and failure modes](docs/COMPONENT_GUIDE.md)
 - [OpenAPI 3.1 contract](docs/openapi/opa-guard-v1.yaml)
 - [AsyncAPI Kafka contract](docs/asyncapi/opa-guard-events.yaml)
 - [Kubernetes manifests](deploy/kubernetes)
 - [Grafana dashboard](observability/grafana/dashboards/opa-guard-overview.json)
 - [CI/CD, supply-chain, canary, and rollback design](docs/CICD.md)
+- [Maven module-boundary decision](docs/adr/0001-modular-monolith-for-v1.md)
 
 ## What it measures
 
-- Average, p95, and p99 end-to-end `opa eval` latency
+- Average, p95, p99, and p999 end-to-end `opa eval` latency
 - Sequential throughput in operations per second
 - Average OPA process CPU time
 - Peak resident memory (RSS) sampled from `/proc` on Linux or `ps` on macOS
 - Exact JSON decision parity for every named benchmark case
+
+Tail gates are sample-size aware: p99 is informational below 100 samples and p999 is informational below 1,000. Those minima prevent a single maximum observation from being mislabeled as a statistically meaningful tail percentile; serious production gates should use substantially larger samples.
 
 The reported latency includes OPA CLI process startup. This makes comparisons reproducible in CI and catches bundle-loading regressions as well as evaluation regressions. Run both branches on the same runner, as the supplied workflow does; values from separate machines are not directly comparable.
 
@@ -120,6 +141,8 @@ Equivalent pipelines are provided for [GitLab](.gitlab-ci.yml), [Jenkins](Jenkin
 
 ## Distributed platform
 
+> **Prototype status:** these roles are implemented and covered by unit/container integration tests. They have not yet completed a multi-region production soak, a 5,000-job concurrency test, or a 10-billion-evaluation/day load test.
+
 Build the OCI image with the pinned OPA runtime:
 
 ```bash
@@ -158,11 +181,11 @@ Compose is a developer topology: Kafka, PostgreSQL, and Redis are single-node. P
 kubectl apply -k deploy/kubernetes
 ```
 
-The coordinator API returns `202 Accepted`; callers poll the job resource or consume the CI connector result. API and event schemas are versioned under `docs/`.
+The coordinator API returns `202 Accepted`; callers poll the job resource or consume the CI connector result. API and event schemas are versioned under `docs/`. Production deployment recommendations in the architecture document are future-state guidance unless the delivery-status table marks them implemented.
 
 ## Report semantics
 
-Average, p95, and p99 latency each use `maximum-latency-regression-percent` as a gate. Peak RSS uses `maximum-memory-regression-percent`. A value exactly equal to a threshold passes. CPU and throughput are informational. Any decision mismatch fails by default, independently of performance; set `fail-on-decision-change: false` only when another correctness gate owns that responsibility.
+Average and p95 latency use `maximum-latency-regression-percent` as gates. p99 and p999 use the same threshold only when their minimum sample counts are met. Peak RSS uses `maximum-memory-regression-percent`. A value exactly equal to a threshold passes. CPU and throughput are informational. Any decision mismatch fails by default, independently of performance; set `fail-on-decision-change: false` only when another correctness gate owns that responsibility.
 
 When a regression is found, a conservative source heuristic checks whether the candidate introduced additional Rego array traversal. It provides a focused recommendation when found and otherwise points to `opa eval --profile`; it never changes the pass/fail result.
 
@@ -185,6 +208,6 @@ The benchmark core depends on the `PolicyEvaluator` interface rather than Spring
 mvn verify
 ```
 
-Unit tests cover dataset validation, warmup exclusion, metric math, threshold boundaries, correctness failures, and Markdown output. `OpaContainerIntegrationTest` uses the pinned official OPA container through Testcontainers and automatically skips when Docker is unavailable.
+Unit tests cover dataset validation, warmup exclusion, alternating paired order, metric math, sample-aware tail gates, threshold boundaries, correctness failures, Redis failure behavior, and report output. Docker-backed tests cover OPA execution, concurrent PostgreSQL idempotency, outbox contention, expired worker-lease recovery, and Kafka redelivery. They automatically skip when Docker is unavailable; CI runs them on a Docker-capable hosted runner.
 
 For low-noise CI measurements, use a dedicated runner class, keep the dataset stable, use at least 30 measured iterations, and increase iterations when branch results are close to the configured threshold.

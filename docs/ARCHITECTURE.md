@@ -1,15 +1,17 @@
 # Distributed architecture
 
+This document mixes executable v1 components with a future production design. **Implemented** means executable and directly tested here; **prototype** means executable or renderable but not production-soak validated; **future** means design/capacity material only. The 10-billion-evaluations/day target is a [capacity model](PERFORMANCE.md), not a benchmark result.
+
 ## System context
 
 ```text
 Developer / CI client
         |
         v
-Global DNS + API Gateway (OIDC, WAF, quotas)
+Global DNS + API Gateway (OIDC, WAF, quotas) [future]
         |
         v
-Regional L7 Load Balancer
+Regional L7 Load Balancer [future]
         |
         v
 +----------------------- regional cell -------------------------+
@@ -56,21 +58,21 @@ The requested logical chain—client, gateway, load balancer, coordinator, worke
 
 | Component | Responsibility and choice | Alternatives and why not selected |
 |---|---|---|
-| API gateway | Validates OIDC tokens, applies WAF rules, request-size limits, global quotas, and region routing before traffic reaches Java. Managed gateway reduces undifferentiated control-plane work. | Envoy/Kong are appropriate for on-premises deployments; direct ingress lacks global quotas and DDoS integration. |
-| Regional load balancer | Health-aware L7 balancing across coordinator pods and zones. TLS terminates here and is re-established with mTLS inside the mesh. | L4 balancing cannot make HTTP-aware admission decisions. |
-| Coordinator | Stateless Spring Boot service that validates commands, enforces tenant access and idempotency, writes the job and outbox atomically, then returns `202`. | Synchronous benchmarking would couple API availability to untrusted policy execution. |
+| API gateway (future) | Validates OIDC tokens, applies WAF rules, request-size limits, global quotas, and region routing before traffic reaches Java. Managed gateway reduces undifferentiated control-plane work. | Envoy/Kong are appropriate for on-premises deployments; direct ingress lacks global quotas and DDoS integration. |
+| Regional load balancer (future) | Health-aware L7 balancing across coordinator pods and zones. TLS terminates here and is re-established with mTLS inside the mesh. | L4 balancing cannot make HTTP-aware admission decisions. |
+| Coordinator (prototype) | Stateless Spring Boot service that validates commands, enforces tenant access and idempotency, writes the job and outbox atomically, then returns `202`. | Synchronous benchmarking would couple API availability to untrusted policy execution. |
 | PostgreSQL | System of record for organizations, immutable artifact metadata, job state, summarized results, reports, idempotency keys, and outbox rows. RLS is defense in depth for tenant isolation. | DynamoDB/Spanner provide easier global writes, but PostgreSQL was required and supports strong relational constraints. The deployment uses cell-local HA clusters rather than a single global primary. |
 | Redis | Admission counters and 30-day incremental-result cache. It is never the system of record. Rate limiting fails closed; result caching fails open. | In-process caches cannot coordinate replicas. PostgreSQL counters create hot rows. |
 | Kafka | Durable, ordered-per-job, backpressured execution and analysis streams. Replication factor 3, minimum ISR 2, idempotent producers, `read_committed` consumers. | SQS/Pub/Sub are viable managed alternatives, but Kafka supplies partition ordering, retention, and replay. |
 | Worker cluster | Consumer group whose members resolve immutable artifacts, verify SHA-256, execute OPA, and publish measurements. Workers use Java virtual threads for blocking process and local HTTP I/O; CPU-bound analysis uses bounded platform-thread pools. | Running policy code in coordinators would expand blast radius. Unbounded virtual-thread concurrency would oversubscribe CPU. |
-| OPA runtime pool | Long-lived OPA processes amortize startup for load/scalability runs; the CLI adapter remains for hermetic CI. Each runtime is assigned one immutable bundle, a CPU/memory cgroup, PID namespace, seccomp profile, deadline, and evaluation budget. Go runtime metrics provide allocation and GC deltas. | One process per request is simple but makes startup dominate and cannot measure sustained scalability. Shared multi-tenant OPA processes create noisy-neighbor and data-leak risks. |
-| Metrics collector | Produces HDR-style latency distributions and resource deltas; report summaries include average, p95, p99, p999, throughput, CPU, RSS, allocation rate, and GC pause. Raw samples are compressed and written to object storage. | Storing raw samples in PostgreSQL makes the primary database a petabyte-scale time-series system. |
+| OPA runtime pool (prototype) | Worker mode implements bounded, long-lived, loopback-only OPA processes to amortize startup and collect Go metrics. The proposed production isolation additionally relies on immutable mounts, cgroups, PID namespaces, seccomp, deadlines, and evaluation budgets. | One process per request is simple but makes startup dominate and cannot measure sustained scalability. Shared multi-tenant OPA processes create noisy-neighbor and data-leak risks. |
+| Metrics collector (prototype/future) | v1 aggregates latency/resource measurements into reports. HDR histograms, complete cgroup/Go telemetry, compressed raw samples, and object-storage archival are future work. | Storing raw samples in PostgreSQL makes the primary database a petabyte-scale time-series system. |
 | Regression analyzer | Independently scales Kafka consumers, compares candidate with both main and historical baselines, validates decision digests, and applies per-metric thresholds. | Analysis in workers ties expensive execution and lightweight analysis scaling together. |
 | Policy advisor | Conservative static Rego complexity analysis identifies new traversals/comprehensions and links evidence to recommendations. It does not decide pass/fail without a configured gate. | LLM-only advice is nondeterministic and can disclose policies; it may be added behind an explicit tenant opt-in. |
 | Prometheus/Grafana | Prometheus serves operational SLOs and 15-day high-resolution metrics; Grafana visualizes live health and queries the long-term metrics store for history. | Prometheus alone is not a petabyte archive. Thanos/Mimir is the production long-term backend. |
 | CI connectors | Consume `analysis-completed.v1` using installation IDs stored in a secret manager, update one marker comment, and set a commit check. The repository workflow demonstrates local mode without platform credentials. | Arbitrary callback URLs are intentionally not accepted because they introduce SSRF. |
 
-## Multi-region cells
+## Multi-region cells (future architecture)
 
 ```text
                     Global DNS / Anycast Gateway
@@ -83,7 +85,7 @@ The requested logical chain—client, gateway, load balancer, coordinator, worke
                        +-- global tenant directory -----+
 ```
 
-Each organization has a `home_region`. Writes and Kafka ordering stay within that cell. The global tenant directory is small and strongly consistent. A region outage causes the gateway to route to the designated disaster-recovery cell, which promotes an asynchronous PostgreSQL replica and resumes Kafka from mirrored topics. Recovery targets are RPO under five minutes and RTO under fifteen minutes; organizations requiring RPO zero use synchronous dual-region PostgreSQL at the latency cost. Raw samples and policy artifacts use cross-region, versioned object replication.
+The proposed design assigns each organization a `home_region`. Writes and Kafka ordering stay within that cell. A future global tenant directory would be small and strongly consistent. A region outage would route to a designated disaster-recovery cell and promote replicated state. The RPO/RTO values are design objectives, not measured recovery results.
 
 This avoids a single global PostgreSQL writer and limits failure domains. Cells can be added without repartitioning every tenant.
 
@@ -200,7 +202,7 @@ Kafka      Worker       Artifact store     OPA pool       Kafka       Analyzer  
   |           |                                |             |-------------------------->| comment/check
 ```
 
-Kafka delivery is at least once. Job state transitions, unique idempotency keys, report upserts, event IDs, and terminal-state checks make consumers idempotent. A worker crash after `RUNNING` is detected by a reconciler lease and safely requeued.
+Kafka delivery is at least once. Job state transitions, unique idempotency keys, report upserts, event IDs, and terminal-state checks make consumers idempotent. A worker atomically acquires a renewable database lease before execution; a redelivery can reclaim an expired lease after a crash, while a live lease rejects overlapping work.
 
 ## Consistency and concurrency
 
@@ -226,7 +228,7 @@ organizations 1---* policy_versions
       +---* outbox_events
 ```
 
-Summary result partitions are monthly, indexed by `(organization_id, job_id, completed_at)`. A scheduled DDL controller creates partitions 90 days ahead and migrates rows out of the default partition. Tenant cells are assigned by rendezvous hashing on organization ID; large tenants can receive dedicated cells. PostgreSQL keeps 100 million summaries; raw histogram/sample data is Parquet in object storage partitioned by `region/date/organization/job`, queried through Trino and compacted daily.
+Summary result partitions are monthly, indexed by `(organization_id, job_id, completed_at)`. The scheduled partition controller, rendezvous cell assignment, 100-million-summary retention, and Parquet/Trino raw-sample archive are future-state capacity design. The v1 schema and repository code do not demonstrate that storage scale.
 
 ## Kafka topics
 
@@ -252,4 +254,4 @@ Payload schemas are versioned, reject unknown major versions, carry event IDs an
 
 Kubernetes manifests are under [`deploy/kubernetes`](../deploy/kubernetes). Coordinators and analyzers use `maxUnavailable: 0`; workers drain Kafka and have a 120-second termination grace period. Pod disruption budgets, zone spreading, readiness/startup probes, restricted pod security, read-only filesystems, dropped capabilities, default-deny network policies, and HPA limits are included. Database migrations obey expand/migrate/contract: additive Flyway changes deploy first, old and new application versions coexist, backfill runs, and destructive cleanup happens in a later release.
 
-Production dependencies are managed, multi-AZ PostgreSQL, Kafka, Redis, object storage, Prometheus/Mimir, and Grafana—not the single-node Compose services. Images are promoted by digest, signed with keyless Cosign, accompanied by an SBOM and provenance, then rolled through canary cells before global deployment.
+The proposed production dependencies are managed, multi-AZ PostgreSQL, Kafka, Redis, object storage, Prometheus/Mimir, and Grafana—not the single-node Compose services. The release workflow implements SBOM generation, image scanning, keyless Cosign signing, and attestations. Canary-cell and global promotion remain future deployment work.

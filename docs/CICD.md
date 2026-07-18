@@ -7,11 +7,17 @@ source -> compile/test -> OPA baseline gate -> CodeQL -> dependency scan -> imag
        -> container scan -> SBOM/provenance -> Kubernetes policy/render -> review
 ```
 
-`platform-ci.yml` implements compilation, JUnit/Testcontainers, CycloneDX, OWASP Dependency Check, CodeQL, an OCI build, Trivy, and Kubernetes rendering. `opa-policy-performance-guard.yml` performs the actual main-versus-PR Rego gate and updates one pull-request comment. GitLab, Jenkins, and Azure examples provide equivalent local CLI behavior.
+`platform-ci.yml` implements compilation, JUnit/Testcontainers, JaCoCo, CycloneDX, GitHub dependency review, an OCI build, Trivy, and Kubernetes rendering. The dedicated `codeql.yml` performs Java CodeQL analysis. `opa-policy-performance-guard.yml` performs the actual main-versus-PR Rego gate and updates one pull-request comment. GitLab, Jenkins, and Azure examples provide equivalent local CLI behavior.
 
-The OWASP job requires an `NVD_API_KEY` repository secret. Without it, NVD's unauthenticated 367,000-record synchronization is too slow and rate-limited to be a dependable release gate.
+Dependabot tracks Maven, GitHub Actions, and Docker updates. Release builds generate a CycloneDX SBOM, scan the published image with Trivy, sign the immutable digest through keyless Cosign/OIDC, and create GitHub artifact attestations for the image and downloadable files.
 
-## Release and deployment
+## Implemented release pipeline
+
+A pushed `v*` tag must exactly match the non-SNAPSHOT Maven version. The workflow rebuilds and tests the artifact, generates Javadoc and a CycloneDX SBOM, publishes the GHCR image, signs its digest, scans it, attests release files/image, and creates a GitHub Release with checksums and the example report.
+
+The Maven output timestamp is fixed and the CycloneDX serial number is omitted because a random BOM UUID made the executable JAR nondeterministic. Two clean local package builds from the same source both produced SHA-256 `9b7d1ccf016369ee068e4b83780a55a612e0c9b510e34350507cfbf6b49e9937`. A different source revision is expected to produce a different digest.
+
+## Future deployment promotion
 
 ```text
 main merge
