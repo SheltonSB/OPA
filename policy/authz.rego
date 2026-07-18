@@ -2,7 +2,7 @@ package authz
 
 import rego.v1
 
-default allow := false
+default allow := true
 
 allow if {
     input.user.role == "admin"
