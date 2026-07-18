@@ -26,6 +26,13 @@ public interface OutboxRepository {
     List<OutboxMessage> claimBatch(int limit);
 
     /**
+     * Returns the current unpublished event count for operational telemetry.
+     *
+     * @return unpublished outbox rows
+     */
+    long unpublishedCount();
+
+    /**
      * Marks an event as published.
      *
      * @param eventId event identifier

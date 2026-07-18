@@ -55,6 +55,12 @@ public class JdbcOutboxRepository implements OutboxRepository {
     }
 
     @Override
+    public long unpublishedCount() {
+        return jdbc.sql("SELECT count(*) FROM outbox_events WHERE published_at IS NULL")
+                .query(Long.class).single();
+    }
+
+    @Override
     public void markPublished(UUID eventId, Instant publishedAt) {
         jdbc.sql("UPDATE outbox_events SET published_at=:at, locked_until=NULL, last_error=NULL WHERE event_id=:id")
                 .param("at", publishedAt).param("id", eventId).update();

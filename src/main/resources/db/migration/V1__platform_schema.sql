@@ -44,6 +44,8 @@ CREATE TABLE benchmark_jobs (
     warmup_iterations INTEGER NOT NULL CHECK (warmup_iterations BETWEEN 0 AND 10000),
     measured_iterations INTEGER NOT NULL CHECK (measured_iterations BETWEEN 1 AND 1000000),
     status VARCHAR(16) NOT NULL CHECK (status IN ('QUEUED','RUNNING','ANALYZING','PASSED','FAILED','ERROR','CANCELLED')),
+    lease_owner VARCHAR(128),
+    lease_expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
     version BIGINT NOT NULL DEFAULT 0,
@@ -57,6 +59,9 @@ CREATE TABLE benchmark_jobs (
 
 CREATE INDEX benchmark_jobs_org_status_created_idx
     ON benchmark_jobs (organization_id, status, created_at DESC);
+CREATE INDEX benchmark_jobs_recovery_idx
+    ON benchmark_jobs (status, lease_expires_at)
+    WHERE status = 'RUNNING';
 
 CREATE TABLE benchmark_results (
     id UUID NOT NULL,

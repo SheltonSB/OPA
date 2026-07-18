@@ -1,7 +1,9 @@
 package dev.opaguard.platform.port;
 
 import dev.opaguard.platform.domain.BenchmarkJob;
+import dev.opaguard.platform.domain.ExecutionClaim;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -27,6 +29,25 @@ public interface BenchmarkJobRepository {
      * @return matching job, if present
      */
     Optional<BenchmarkJob> findById(UUID organizationId, UUID jobId);
+
+    /**
+     * Atomically acquires an execution lease or classifies a duplicate delivery.
+     *
+     * @param organizationId owning tenant
+     * @param jobId benchmark job identifier
+     * @param workerId unique worker process identifier
+     * @param now current time
+     * @param leaseExpiresAt lease deadline
+     * @return claim outcome
+     */
+    ExecutionClaim claimForExecution(UUID organizationId, UUID jobId, String workerId,
+                                     Instant now, Instant leaseExpiresAt);
+
+    /** Renews a live execution lease owned by this worker. */
+    boolean renewExecutionLease(UUID organizationId, UUID jobId, String workerId, Instant leaseExpiresAt);
+
+    /** Releases a lease after a controlled failure so Kafka can retry immediately. */
+    void releaseExecutionLease(UUID organizationId, UUID jobId, String workerId);
 
     /**
      * Persists an aggregate using optimistic concurrency control.

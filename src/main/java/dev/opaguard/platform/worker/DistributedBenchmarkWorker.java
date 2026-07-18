@@ -12,6 +12,7 @@ import dev.opaguard.platform.analysis.RegoComplexityAnalyzer;
 import dev.opaguard.platform.domain.BenchmarkExecutionCompleted;
 import dev.opaguard.platform.domain.BenchmarkJobCompleted;
 import dev.opaguard.platform.domain.BenchmarkJobRequested;
+import dev.opaguard.platform.domain.ExecutionClaim;
 import dev.opaguard.platform.domain.JobStatus;
 import dev.opaguard.platform.domain.PolicyBenchmarkSnapshot;
 import dev.opaguard.platform.messaging.KafkaTopics;
@@ -25,6 +26,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.UUID;
 
 /**
@@ -39,6 +43,7 @@ import java.util.UUID;
 @ConditionalOnProperty(name = "opa-guard.mode", havingValue = "worker")
 public class DistributedBenchmarkWorker {
     private static final String HARNESS_VERSION = "1";
+    private static final Duration LEASE_DURATION = Duration.ofSeconds(30);
     private final ArtifactCatalog catalog;
     private final ArtifactStore artifactStore;
     private final DatasetLoader datasets;
@@ -51,6 +56,7 @@ public class DistributedBenchmarkWorker {
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final TransactionTemplate transactions;
+    private final String workerId = UUID.randomUUID().toString();
 
     public DistributedBenchmarkWorker(ArtifactCatalog catalog, ArtifactStore artifactStore, DatasetLoader datasets,
                                       BenchmarkRunner runner, RegoComplexityAnalyzer complexityAnalyzer,
@@ -70,6 +76,22 @@ public class DistributedBenchmarkWorker {
      * @param event immutable, versioned benchmark request
      */
     public void execute(BenchmarkJobRequested event) {
+        ExecutionClaim claim = jobs.claimForExecution(event.organizationId(), event.jobId(), workerId,
+                clock.instant(), clock.instant().plus(LEASE_DURATION));
+        if (claim == ExecutionClaim.COMPLETE) return;
+        if (claim == ExecutionClaim.LEASED) {
+            throw new GuardException("Benchmark job is leased by another worker; retry after lease expiry");
+        }
+
+        try (ScheduledExecutorService heartbeat = leaseHeartbeat(event)) {
+            executeClaimed(event);
+        } catch (RuntimeException failure) {
+            jobs.releaseExecutionLease(event.organizationId(), event.jobId(), workerId);
+            throw failure;
+        }
+    }
+
+    private void executeClaimed(BenchmarkJobRequested event) {
         var baselineArtifact = catalog.policy(event.organizationId(), event.baselineVersionId());
         var candidateArtifact = catalog.policy(event.organizationId(), event.candidateVersionId());
         var datasetArtifact = catalog.dataset(event.organizationId(), event.datasetVersionId());
@@ -79,12 +101,10 @@ public class DistributedBenchmarkWorker {
         String fingerprint = BenchmarkFingerprint.calculate(event, baselineArtifact, candidateArtifact, datasetArtifact, HARNESS_VERSION);
         var cached = cache.get(fingerprint);
         if (cached.isPresent()) {
-            mark(event, JobStatus.RUNNING);
             publishExecution(event, rebindCachedExecution(event, fingerprint, cached.get()));
             return;
         }
 
-        mark(event, JobStatus.RUNNING);
         var baselinePath = artifactStore.resolvePolicy(event.organizationId(), baselineArtifact.objectKey(), baselineArtifact.sha256());
         var candidatePath = artifactStore.resolvePolicy(event.organizationId(), candidateArtifact.objectKey(), candidateArtifact.sha256());
         var datasetPath = artifactStore.resolveDataset(event.organizationId(), datasetArtifact.objectKey(), datasetArtifact.sha256());
@@ -131,7 +151,25 @@ public class DistributedBenchmarkWorker {
         cache.put(fingerprint, payload);
     }
 
+    private ScheduledExecutorService leaseHeartbeat(BenchmarkJobRequested event) {
+        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(
+                Thread.ofPlatform().daemon().name("opa-guard-lease-" + event.jobId()).factory());
+        executor.scheduleAtFixedRate(() -> {
+            try {
+                jobs.renewExecutionLease(event.organizationId(), event.jobId(), workerId,
+                        clock.instant().plus(LEASE_DURATION));
+            } catch (RuntimeException ignored) {
+                // The main transaction still owns correctness; an expired lease makes the delivery retryable.
+            }
+        }, 10, 10, TimeUnit.SECONDS);
+        return executor;
+    }
+
     private void publishExecution(BenchmarkJobRequested requested, String payload) {
+        if (!jobs.renewExecutionLease(requested.organizationId(), requested.jobId(), workerId,
+                clock.instant().plus(LEASE_DURATION))) {
+            throw new GuardException("Benchmark execution lease was lost before result publication");
+        }
         BenchmarkExecutionCompleted execution;
         try {
             execution = objectMapper.readValue(payload, BenchmarkExecutionCompleted.class);
@@ -162,13 +200,6 @@ public class DistributedBenchmarkWorker {
         } catch (JsonProcessingException exception) {
             throw new GuardException("Cached benchmark execution is invalid", exception);
         }
-    }
-
-    private void mark(BenchmarkJobRequested event, JobStatus status) {
-        var job = jobs.findById(event.organizationId(), event.jobId()).orElseThrow();
-        if (job.status() == status || job.status().terminal()) return;
-        job.transitionTo(status, clock.instant());
-        jobs.update(job);
     }
 
     private static BenchmarkJobCompleted.RegoComplexity complexity(RegoComplexityAnalyzer.ComplexityMetrics metrics) {

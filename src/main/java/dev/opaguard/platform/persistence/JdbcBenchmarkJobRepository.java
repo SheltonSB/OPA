@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.opaguard.exception.GuardException;
 import dev.opaguard.platform.domain.BenchmarkJob;
 import dev.opaguard.platform.domain.BenchmarkThresholds;
+import dev.opaguard.platform.domain.ExecutionClaim;
 import dev.opaguard.platform.domain.JobStatus;
 import dev.opaguard.platform.port.BenchmarkJobRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
@@ -14,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -66,6 +68,49 @@ public class JdbcBenchmarkJobRepository implements BenchmarkJobRepository {
                 .query(this::map).optional();
     }
 
+    @Override
+    public ExecutionClaim claimForExecution(UUID organizationId, UUID jobId, String workerId,
+                                            Instant now, Instant leaseExpiresAt) {
+        setTenant(organizationId);
+        boolean claimed = jdbc.sql("""
+                UPDATE benchmark_jobs
+                SET status='RUNNING', updated_at=:now, version=version+1,
+                    lease_owner=:worker, lease_expires_at=:expires
+                WHERE organization_id=:org AND id=:id
+                  AND (status='QUEUED' OR
+                       (status='RUNNING' AND (lease_expires_at IS NULL OR lease_expires_at <= :now)))
+                RETURNING id
+                """).param("now", now).param("worker", workerId).param("expires", leaseExpiresAt)
+                .param("org", organizationId).param("id", jobId)
+                .query(UUID.class).optional().isPresent();
+        if (claimed) return ExecutionClaim.CLAIMED;
+        JobStatus status = jdbc.sql("""
+                SELECT status FROM benchmark_jobs WHERE organization_id=:org AND id=:id
+                """).param("org", organizationId).param("id", jobId)
+                .query(String.class).optional().map(JobStatus::valueOf)
+                .orElseThrow(() -> new GuardException("Benchmark job is unavailable"));
+        return status == JobStatus.RUNNING ? ExecutionClaim.LEASED : ExecutionClaim.COMPLETE;
+    }
+
+    @Override
+    public boolean renewExecutionLease(UUID organizationId, UUID jobId, String workerId, Instant leaseExpiresAt) {
+        setTenant(organizationId);
+        return jdbc.sql("""
+                UPDATE benchmark_jobs SET lease_expires_at=:expires
+                WHERE organization_id=:org AND id=:id AND status='RUNNING' AND lease_owner=:worker
+                """).param("expires", leaseExpiresAt).param("org", organizationId)
+                .param("id", jobId).param("worker", workerId).update() == 1;
+    }
+
+    @Override
+    public void releaseExecutionLease(UUID organizationId, UUID jobId, String workerId) {
+        setTenant(organizationId);
+        jdbc.sql("""
+                UPDATE benchmark_jobs SET lease_owner=NULL, lease_expires_at=NULL
+                WHERE organization_id=:org AND id=:id AND status='RUNNING' AND lease_owner=:worker
+                """).param("org", organizationId).param("id", jobId).param("worker", workerId).update();
+    }
+
     private Optional<BenchmarkJob> findByIdempotencyKey(UUID organizationId, String key) {
         return jdbc.sql("SELECT * FROM benchmark_jobs WHERE organization_id=:org AND idempotency_key=:key")
                 .param("org", organizationId).param("key", key).query(this::map).optional();
@@ -75,7 +120,9 @@ public class JdbcBenchmarkJobRepository implements BenchmarkJobRepository {
     public void update(BenchmarkJob job) {
         setTenant(job.organizationId());
         int updated = jdbc.sql("""
-                UPDATE benchmark_jobs SET status=:status, updated_at=:updated, version=:next_version
+                UPDATE benchmark_jobs SET status=:status, updated_at=:updated, version=:next_version,
+                    lease_owner=CASE WHEN :status='RUNNING' THEN lease_owner ELSE NULL END,
+                    lease_expires_at=CASE WHEN :status='RUNNING' THEN lease_expires_at ELSE NULL END
                 WHERE organization_id=:org AND id=:id AND version=:expected_version
                 """)
                 .param("status", job.status().name()).param("updated", job.updatedAt())

@@ -3,6 +3,7 @@ package dev.opaguard.platform.messaging;
 import dev.opaguard.platform.port.OutboxRepository;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -36,6 +37,9 @@ public class OutboxRelay {
         this.clock = clock;
         this.published = registry.counter("opa_guard_outbox_published_total");
         this.failures = registry.counter("opa_guard_outbox_publish_failures_total");
+        Gauge.builder("opa_guard_outbox_backlog", outbox, OutboxRepository::unpublishedCount)
+                .description("Unpublished transactional outbox events")
+                .register(registry);
     }
 
     /**
