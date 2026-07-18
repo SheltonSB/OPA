@@ -2,12 +2,9 @@ name: OPA Policy Performance Guard
 
 on:
   pull_request:
-    paths:
-      - "**/*.rego"
-      - "benchmark/**"
-      - "opa-guard.yml"
-      - "src/**"
-      - "pom.xml"
+    branches:
+      - main
+    types: [opened, reopened, synchronize]
 
 permissions:
   contents: read
@@ -15,74 +12,128 @@ permissions:
 
 jobs:
   benchmark:
+    name: Benchmark base and pull-request policies
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
-      - name: Check out pull request
-        uses: actions/checkout@v7
+      # Explicit SHA checkouts are intentional: GitHub's default pull_request
+      # checkout is the synthetic merge commit, which must not be benchmarked.
+      - name: Check out pull-request head (candidate)
+        uses: actions/checkout@v4
         with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
           path: candidate
+          fetch-depth: 1
 
-      - name: Check out main branch
-        uses: actions/checkout@v7
+      - name: Check out pull-request base (baseline)
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: baseline
+          fetch-depth: 1
 
       - name: Set up Java 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
           cache-dependency-path: candidate/pom.xml
 
-      - name: Set up OPA
+      - name: Install OPA CLI
         uses: open-policy-agent/setup-opa@v2
         with:
           version: 1.18.2
 
-      - name: Build guard
-        working-directory: candidate
-        run: mvn --batch-mode --no-transfer-progress verify
-
-      - name: Benchmark and compare
-        id: guard
-        continue-on-error: true
-        working-directory: candidate
+      - name: Validate OPA and repository inputs
+        shell: bash
         run: |
-          java -jar target/opa-policy-performance-guard-*.jar \
-            --spring.config.additional-location=file:opa-guard.yml \
-            --opa-guard.baseline-policy=../baseline/policy \
-            --opa-guard.candidate-policy=policy \
-            --opa-guard.benchmark-dataset=benchmark/dataset.json
+          set -euo pipefail
+          command -v opa >/dev/null || { echo "::error::OPA CLI is missing from PATH"; exit 1; }
+          opa version
+          [[ -d baseline/policy ]] || { echo "::error::Base commit has no policy/ directory"; exit 1; }
+          [[ -d candidate/policy ]] || { echo "::error::PR head has no policy/ directory"; exit 1; }
+          [[ -f candidate/benchmark/dataset.json ]] || { echo "::error::Missing candidate benchmark/ dataset.json"; exit 1; }
+          [[ -f candidate/opa-guard.yml ]] || { echo "::error::Missing candidate opa-guard.yml"; exit 1; }
 
-      - name: Add pull request summary
-        if: always()
-        working-directory: candidate
+      - name: Prepare isolated benchmark input
+        shell: bash
         run: |
-          if [ -f build/reports/opa-guard.md ]; then
-            cat build/reports/opa-guard.md >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          rm -rf benchmark-input
+          mkdir -p benchmark-input/baseline/policy \
+                   benchmark-input/candidate/policy \
+                   benchmark-input/benchmark \
+                   benchmark-input/build/reports \
+                   tools
+          cp -R baseline/policy/. benchmark-input/baseline/policy/
+          cp -R candidate/policy/. benchmark-input/candidate/policy/
+          cp candidate/benchmark/dataset.json benchmark-input/benchmark/dataset.json
+          cp candidate/opa-guard.yml benchmark-input/opa-guard.yml
+          [[ -s benchmark-input/benchmark/dataset.json ]] || { echo "::error::Benchmark dataset is empty"; exit 1; }
+          [[ -s benchmark-input/opa-guard.yml ]] || { echo "::error::opa-guard.yml is empty"; exit 1; }
+
+      - name: Obtain OPA Guard v1.0.0 release JAR
+        id: guard-jar
+        shell: bash
+        env:
+          RELEASE_URL: https://github.com/sheltonsb/opa-policy-performance-guard/releases/download/v1.0.0/opa-policy-performance-guard-1.0.0.jar
+        run: |
+          set -euo pipefail
+          jar_path="tools/opa-policy-performance-guard-1.0.0.jar"
+          echo "Downloading published guard: ${RELEASE_URL}"
+          if curl --fail --location --retry 3 --retry-delay 2 --silent --show-error \
+              "${RELEASE_URL}" --output "${jar_path}"; then
+            echo "source=release" >> "$GITHUB_OUTPUT"
           else
-            echo "## ❌ OPA Policy Performance Guard could not produce a report" >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Published v1.0.0 release asset was unavailable; building the PR source as a fallback."
+            mvn --batch-mode --no-transfer-progress -f candidate/pom.xml -DskipTests package
+            built_jar="$(find candidate/target -maxdepth 1 -type f -name 'opa-policy-performance-guard-*.jar' ! -name '*-plain.jar' -print -quit)"
+            [[ -n "${built_jar}" ]] || { echo "::error::Maven build completed but no executable guard JAR was produced"; exit 1; }
+            cp "${built_jar}" "${jar_path}"
+            echo "source=build" >> "$GITHUB_OUTPUT"
+          fi
+          [[ -s "${jar_path}" ]] || { echo "::error::Guard JAR is missing or empty after release/build step"; exit 1; }
+          jar tf "${jar_path}" >/dev/null || { echo "::error::Guard JAR is not a valid archive"; exit 1; }
+
+      - name: Run OPA Policy Performance Guard
+        id: guard
+        working-directory: benchmark-input
+        shell: bash
+        run: |
+          set -o pipefail
+          java -jar ../tools/opa-policy-performance-guard-1.0.0.jar \
+            --spring.config.additional-location=file:./opa-guard.yml
+
+      - name: Add benchmark report to workflow summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f benchmark-input/build/reports/opa-guard.md ]]; then
+            cat benchmark-input/build/reports/opa-guard.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## OPA Policy Performance Guard" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Guard did not produce benchmark/opa-guard.md; inspect the guard logs." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Comment on pull request
-        if: always() && github.event.pull_request.head.repo.fork == false
-        uses: actions/github-script@v9
+      - name: Comment benchmark report on pull request
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
         env:
-          REPORT_PATH: candidate/build/reports/opa-guard.md
+          REPORT_PATH: benchmark-input/build/reports/opa-guard.md
         with:
           script: |
             const fs = require('fs');
             const marker = '<!-- opa-policy-performance-guard -->';
-            const body = fs.existsSync(process.env.REPORT_PATH)
-              ? `${marker}\n${fs.readFileSync(process.env.REPORT_PATH, 'utf8')}`
-              : `${marker}\n## ❌ OPA Policy Performance Guard\n\nThe benchmark did not produce a report. Inspect the workflow logs.`;
+            const report = fs.existsSync(process.env.REPORT_PATH)
+              ? fs.readFileSync(process.env.REPORT_PATH, 'utf8')
+              : '## ❌ OPA Policy Performance Guard\n\nThe guard failed before producing a report. Inspect the workflow logs.';
+            const body = `${marker}\n${report}`;
             const { owner, repo } = context.repo;
             const issue_number = context.issue.number;
             const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
-            const previous = comments.find(comment => comment.user.type === 'Bot' && comment.body.includes(marker));
+            const previous = comments.find(c => c.user?.type === 'Bot' && c.body?.includes(marker));
             if (previous) {
               await github.rest.issues.updateComment({ owner, repo, comment_id: previous.id, body });
             } else {
@@ -91,14 +142,10 @@ jobs:
 
       - name: Upload benchmark reports
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: opa-policy-performance-report
           path: |
-            candidate/build/reports/opa-guard.md
-            candidate/build/reports/opa-guard.json
+            benchmark-input/build/reports/opa-guard.md
+            benchmark-input/build/reports/opa-guard.json
           if-no-files-found: warn
-
-      - name: Enforce guard result
-        if: steps.guard.outcome != 'success'
-        run: exit 1

@@ -66,6 +66,20 @@ Run the included policy against itself to validate the setup:
 
 ```bash
 java -jar target/opa-policy-performance-guard-*.jar \
+  --config opa-guard.yml \
+  --opa-guard.baseline-policy=policy \
+  --opa-guard.candidate-policy=policy \
+  --opa-guard.benchmark-dataset=benchmark/dataset.json \
+  --opa-guard.minimum-iterations=3 \
+  --opa-guard.warmup-iterations=1
+```
+
+`--config <path>` is supported by the executable and is translated to
+Spring's early configuration location before the application starts. The
+equivalent explicit Spring form remains supported:
+
+```bash
+java -jar target/opa-policy-performance-guard-*.jar \
   --spring.config.additional-location=file:opa-guard.yml
 ```
 
@@ -137,6 +151,30 @@ The included [GitHub Actions workflow](.github/workflows/opa-policy-performance-
 - fails the required check when the guard returns a non-zero result.
 
 The example workflow expects policies under `policy/` and the dataset at `benchmark/dataset.json`. Change the three `--opa-guard.*-policy/dataset` options if the repository uses different paths. For security, comments are skipped for fork-originated pull requests, where the default GitHub token is read-only; the workflow summary and artifact are still produced.
+
+The workflow runs for `opened`, `reopened`, and `synchronize` events targeting
+`main`. It checks out `github.event.pull_request.base.sha` as `baseline` and
+`github.event.pull_request.head.sha` as `candidate`; it never benchmarks the
+synthetic pull-request merge commit. It copies those policies, the candidate's
+`benchmark/dataset.json`, and the candidate's `opa-guard.yml` into an isolated
+`benchmark-input/` tree, then runs the guard from that directory.
+
+The invocation used by the workflow is:
+
+```bash
+cd benchmark-input
+java -jar ../tools/opa-policy-performance-guard-1.0.0.jar \
+  --spring.config.additional-location=file:./opa-guard.yml
+```
+
+After enabling the workflow, make its check a required status check in
+**Settings → Branches → Branch protection rules**, or in a repository ruleset
+under **Require status checks to pass**. A non-zero guard exit code then blocks
+merging. To exercise the gate locally, change the candidate policy to return a
+different decision for one dataset case (correctness failure), or add a costly
+array traversal and run enough iterations to exceed the configured latency or
+memory threshold (performance failure). Restore the policy after verifying the
+expected failed check.
 
 Equivalent pipelines are provided for [GitLab](.gitlab-ci.yml), [Jenkins](Jenkinsfile), and [Azure DevOps](azure-pipelines.yml).
 
