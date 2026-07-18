@@ -9,6 +9,7 @@ import dev.opaguard.exception.GuardException;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -48,6 +49,7 @@ public class OpaCliEvaluator implements PolicyEvaluator {
     public Measurement evaluate(Path policyPath, String query, JsonNode input, Duration timeout) {
         Path validatedPolicyPath = validatePolicyPath(policyPath);
         validateQuery(query);
+        byte[] serializedInput = serializeInput(input);
         List<String> command = List.of(
                 executable, "eval",
                 "--format=json",
@@ -66,8 +68,15 @@ public class OpaCliEvaluator implements PolicyEvaluator {
                     () -> readBounded(activeProcess.getErrorStream()), ioExecutor);
 
             try (ProcessMetricsSampler sampler = new ProcessMetricsSampler(process)) {
-                objectMapper.writeValue(process.getOutputStream(), input);
-                process.getOutputStream().close();
+                IOException inputFailure = null;
+                try (OutputStream processInput = process.getOutputStream()) {
+                    processInput.write(serializedInput);
+                } catch (IOException exception) {
+                    // A process that rejects a policy may exit before consuming stdin. Preserve
+                    // that failure, but read its exit code and stderr before deciding which error
+                    // is useful to the caller.
+                    inputFailure = exception;
+                }
 
                 if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
                     terminateProcessTree(process);
@@ -80,6 +89,10 @@ public class OpaCliEvaluator implements PolicyEvaluator {
                 if (process.exitValue() != 0) {
                     throw new GuardException("OPA exited with code " + process.exitValue() + ": " + errorOutput);
                 }
+                if (inputFailure != null) {
+                    throw new GuardException("OPA closed its input stream before accepting the evaluation input",
+                            inputFailure);
+                }
                 return new Measurement(elapsed, sampler.cpuNanos(), sampler.peakRssBytes(), parseDecision(output));
             }
         } catch (GuardException exception) {
@@ -89,6 +102,17 @@ public class OpaCliEvaluator implements PolicyEvaluator {
                 terminateProcessTree(process);
             }
             throw new GuardException("Unable to execute OPA command '" + executable + "': " + exception.getMessage(), exception);
+        }
+    }
+
+    private byte[] serializeInput(JsonNode input) {
+        if (input == null) {
+            throw new GuardException("OPA evaluation input must not be null");
+        }
+        try {
+            return objectMapper.writeValueAsBytes(input);
+        } catch (IOException exception) {
+            throw new GuardException("Unable to serialize OPA evaluation input", exception);
         }
     }
 

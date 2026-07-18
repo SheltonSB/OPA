@@ -4,7 +4,9 @@ WORKDIR /workspace
 COPY pom.xml ./
 RUN --mount=type=cache,target=/root/.m2 mvn --batch-mode --no-transfer-progress dependency:go-offline
 COPY src ./src
-RUN --mount=type=cache,target=/root/.m2 mvn --batch-mode --no-transfer-progress verify
+# Verification runs before the image build in CI. Keeping tests out of this isolated
+# BuildKit stage avoids silently skipping Docker-backed Testcontainers tests.
+RUN --mount=type=cache,target=/root/.m2 mvn --batch-mode --no-transfer-progress -DskipTests package
 
 FROM openpolicyagent/opa:1.16.2-static AS opa
 
