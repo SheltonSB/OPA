@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Testcontainers(disabledWithoutDocker = true)
 class OpaContainerIntegrationTest {
     @Container
-    static final GenericContainer<?> OPA = new GenericContainer<>("openpolicyagent/opa:1.16.2-static")
+    static final GenericContainer<?> OPA = new GenericContainer<>("openpolicyagent/opa:1.18.2-static")
             .withCopyFileToContainer(MountableFile.forClasspathResource("integration/authz.rego"), "/policy/authz.rego")
             .withCommand("run", "--server", "--addr=0.0.0.0:8181", "/policy");
 

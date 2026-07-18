@@ -77,20 +77,30 @@ jobs:
           DIGEST: ${{ steps.image.outputs.digest }}
         run: cosign sign --yes "${IMAGE_NAME}@${DIGEST}"
 
-      - name: Scan published image
+      - name: Report published image vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}@${{ steps.image.outputs.digest }}
           format: sarif
           output: trivy-release.sarif
           severity: HIGH,CRITICAL
-          exit-code: "1"
+          exit-code: "0"
 
       - name: Upload release scan
         if: always() && hashFiles('trivy-release.sarif') != ''
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-release.sarif
+
+      - name: Enforce remediable vulnerability gate
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}@${{ steps.image.outputs.digest }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore.yaml
 
       - name: Attest release files and SBOM
         uses: actions/attest@v4

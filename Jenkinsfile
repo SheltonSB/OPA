@@ -6,8 +6,8 @@ pipeline {
     stage('OPA Guard') {
       when { changeRequest() }
       steps {
-        sh 'mkdir -p .tools && curl -fsSLo .tools/opa https://openpolicyagent.org/downloads/v1.16.2/opa_linux_amd64_static'
-        sh "echo '4ab4b89c131e6df3fed28b0b164083b6641ad67c86ab4c12d417ecfb93838ef1  .tools/opa' | sha256sum -c - && chmod 0755 .tools/opa"
+        sh 'mkdir -p .tools && curl -fsSLo .tools/opa https://openpolicyagent.org/downloads/v1.18.2/opa_linux_amd64_static'
+        sh "echo '9903e5125ac281104f2c4b7371d10cc3b74a98933743fcbfc174f9bf0ab20de8  .tools/opa' | sha256sum -c - && chmod 0755 .tools/opa"
         sh 'git fetch origin ${CHANGE_TARGET}'
         sh 'git worktree add --detach .opa-guard-baseline origin/${CHANGE_TARGET}'
         sh '''java -jar target/opa-policy-performance-guard-*.jar \

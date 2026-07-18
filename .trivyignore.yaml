@@ -1,0 +1,10 @@
+vulnerabilities:
+  - id: CVE-2026-39822
+    paths:
+      - usr/local/bin/opa
+    expired_at: 2026-08-15
+    statement: >-
+      OPA 1.18.2 is the latest stable release and is built with Go 1.26.4. The
+      guard rejects symlink policy roots and descendants and does not expose
+      arbitrary OPA commands, so the affected os.Root path is not reachable.
+      Remove this exception when OPA publishes a Go 1.26.5+ build.

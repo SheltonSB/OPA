@@ -11,6 +11,8 @@ source -> compile/test -> OPA baseline gate -> CodeQL -> dependency scan -> imag
 
 Dependabot tracks Maven, GitHub Actions, and Docker updates. Release builds generate a CycloneDX SBOM, scan the published image with Trivy, sign the immutable digest through keyless Cosign/OIDC, and create GitHub artifact attestations for the image and downloadable files. The Trivy action is pinned to the signed v0.36.0 commit rather than a mutable tag because its upstream project disclosed a 2026 tag-compromise incident.
 
+The container pipeline deliberately separates reporting from enforcement. The first scan uploads every HIGH/CRITICAL result to GitHub code scanning, including findings without an upstream fix. A second scan fails promotion for every remediable HIGH/CRITICAL result. Exceptions must be component-scoped, justified, and dated in `.trivyignore.yaml`; an expired exception fails the gate. Unfixed findings remain visible and must be reconsidered on every base-image or OPA refresh.
+
 ## Implemented release pipeline
 
 A pushed `v*` tag must exactly match the non-SNAPSHOT Maven version. The workflow rebuilds and tests the artifact, generates Javadoc and a CycloneDX SBOM, publishes the GHCR image, signs its digest, scans it, attests release files/image, and creates a GitHub Release with checksums and the example report.

@@ -8,9 +8,9 @@ COPY src ./src
 # BuildKit stage avoids silently skipping Docker-backed Testcontainers tests.
 RUN --mount=type=cache,target=/root/.m2 mvn --batch-mode --no-transfer-progress -DskipTests package
 
-FROM openpolicyagent/opa:1.16.2-static AS opa
+FROM openpolicyagent/opa:1.18.2-static AS opa
 
-FROM gcr.io/distroless/java21-debian12:nonroot
+FROM gcr.io/distroless/java21-debian13:nonroot
 LABEL org.opencontainers.image.title="OPA Policy Performance Guard" \
       org.opencontainers.image.description="Distributed OPA policy regression platform" \
       org.opencontainers.image.source="https://github.com/SheltonSB/OPA" \
