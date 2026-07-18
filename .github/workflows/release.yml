@@ -102,13 +102,13 @@ jobs:
           exit-code: "1"
           trivyignores: .trivyignore.yaml
 
-      - name: Attest release files and SBOM
+      - name: Attest release files and SBOM artifact
         uses: actions/attest@v4
         with:
           subject-path: |
             dist/opa-policy-performance-guard-${{ steps.version.outputs.version }}.jar
             dist/SHA256SUMS
-          sbom-path: dist/opa-guard-${{ steps.version.outputs.version }}.cdx.json
+            dist/opa-guard-${{ steps.version.outputs.version }}.cdx.json
 
       - name: Attest container image
         uses: actions/attest@v4
