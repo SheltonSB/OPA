@@ -7,7 +7,21 @@ source -> compile/test -> OPA baseline gate -> CodeQL -> dependency scan -> imag
        -> container scan -> SBOM/provenance -> Kubernetes policy/render -> review
 ```
 
-`platform-ci.yml` implements compilation, JUnit/Testcontainers, JaCoCo, CycloneDX, GitHub dependency review, an OCI build, Trivy, and Kubernetes rendering. The dedicated `codeql.yml` performs Java CodeQL analysis. `opa-policy-performance-guard.yml` performs the actual main-versus-PR Rego gate and updates one pull-request comment. GitLab, Jenkins, and Azure examples provide equivalent local CLI behavior.
+`platform-ci.yml` implements compilation, JUnit/Testcontainers, JaCoCo, CycloneDX, GitHub dependency review, an OCI build, Trivy, and Kubernetes rendering. Its explicit container-evidence step fails the job if Kafka/PostgreSQL/OPA integration reports are skipped, so Docker misconfiguration cannot look green. The dedicated `codeql.yml` performs Java CodeQL analysis. `opa-policy-performance-guard.yml` performs the actual main-versus-PR Rego gate and updates one pull-request comment. GitLab, Jenkins, and Azure examples provide equivalent local CLI behavior; their container-runtime requirements must be enabled by the host project.
+
+The Maven OWASP Dependency-Check integration is available as an explicit
+security profile. It is intentionally not part of every pull-request build
+because the NVD feed is large and rate-limited; scheduled or release-hardening
+jobs should run it with a cached data directory and (where available) an
+`NVD_API_KEY`:
+
+```bash
+mvn --batch-mode --no-transfer-progress -Psecurity verify
+```
+
+The profile fails on CVSS 7.0 or higher and writes HTML/JSON evidence under
+`target/`. This complements, rather than replaces, Dependabot, GitHub
+dependency review, CodeQL, the CycloneDX SBOM, and Trivy image scanning.
 
 Dependabot tracks Maven, GitHub Actions, and Docker updates. Release builds generate a CycloneDX SBOM, scan the published image with Trivy, sign the immutable digest through keyless Cosign/OIDC, and create GitHub artifact attestations for the image and downloadable files. The Trivy action is pinned to the signed v0.36.0 commit rather than a mutable tag because its upstream project disclosed a 2026 tag-compromise incident.
 

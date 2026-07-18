@@ -2,13 +2,13 @@
 
 [![CI](https://github.com/SheltonSB/OPA/actions/workflows/platform-ci.yml/badge.svg)](https://github.com/SheltonSB/OPA/actions/workflows/platform-ci.yml)
 [![CodeQL](https://github.com/SheltonSB/OPA/actions/workflows/codeql.yml/badge.svg)](https://github.com/SheltonSB/OPA/actions/workflows/codeql.yml)
-[![Tests](docs/badges/tests.svg)](docs/TEST_EVIDENCE.md)
-[![Coverage](docs/badges/coverage.svg)](docs/TEST_EVIDENCE.md)
+[![Tests (last local snapshot)](docs/badges/tests.svg)](docs/TEST_EVIDENCE.md)
+[![Coverage (last local snapshot)](docs/badges/coverage.svg)](docs/TEST_EVIDENCE.md)
 [![Release](https://img.shields.io/github/v/release/SheltonSB/OPA)](https://github.com/SheltonSB/OPA/releases/tag/v1.0.0)
 
 OPA Policy Performance Guard is a Java 21 command-line tool that detects Open Policy Agent (OPA) performance and correctness regressions in pull requests. It runs the same JSON inputs against the main-branch and candidate Rego policies, fails when configured thresholds are exceeded, and emits Markdown and JSON reports.
 
-The repository also contains a distributed-platform prototype with independently deployable coordinator, worker, and analyzer roles backed by PostgreSQL, Redis, and Kafka. The CLI is the release-grade path in v1.0.0; the distributed roles have executable code and integration tests but are not represented as production-proven at internet scale.
+The repository also contains a distributed-platform prototype with independently deployable coordinator, worker, and analyzer roles backed by PostgreSQL, Redis, and Kafka. The CLI is the release-grade path in v1.0.0; the distributed roles have executable code and integration tests but are not represented as production-proven at internet scale. Badge values are a checked-in local snapshot; hosted CI publishes authoritative reports and rejects skipped Docker integration tests.
 
 ## Delivery status
 
@@ -27,6 +27,7 @@ Production design documents:
 - [Measured benchmark evidence and reproduction details](docs/PERFORMANCE_RESULTS.md)
 - [10-billion-evaluations/day capacity model (not a load-test result)](docs/PERFORMANCE.md)
 - [v1 component ownership and failure modes](docs/COMPONENT_GUIDE.md)
+- [delivery/evidence matrix](docs/EVIDENCE_MATRIX.md)
 - [OpenAPI 3.1 contract](docs/openapi/opa-guard-v1.yaml)
 - [AsyncAPI Kafka contract](docs/asyncapi/opa-guard-events.yaml)
 - [Kubernetes manifests](deploy/kubernetes)
@@ -208,6 +209,17 @@ The benchmark core depends on the `PolicyEvaluator` interface rather than Spring
 mvn verify
 ```
 
-Unit tests cover dataset validation, warmup exclusion, alternating paired order, metric math, sample-aware tail gates, threshold boundaries, correctness failures, Redis failure behavior, and report output. Docker-backed tests cover OPA execution, concurrent PostgreSQL idempotency, outbox contention, expired worker-lease recovery, and Kafka redelivery. They automatically skip when Docker is unavailable; CI runs them on a Docker-capable hosted runner.
+For the opt-in full NVD dependency scan (in addition to pull-request
+Dependency Review and container Trivy checks), run:
+
+```bash
+NVD_API_KEY=... mvn --batch-mode --no-transfer-progress -Psecurity verify
+```
+
+The `security` profile fails on CVSS 7.0+ findings and writes HTML/JSON
+reports under `target/`. Keep the NVD cache between runs; the public feed is
+rate-limited when no API key is configured.
+
+Unit tests cover dataset validation, warmup exclusion, alternating paired order, metric math, sample-aware tail gates, threshold boundaries, correctness failures, duplicate worker/analyzer events, Redis failure behavior, and report output. Docker-backed tests cover OPA execution, concurrent PostgreSQL idempotency, outbox contention, expired worker-lease recovery, and Kafka redelivery. They may skip when Docker is unavailable for local development; the GitHub CI gate fails if any container integration report is skipped.
 
 For low-noise CI measurements, use a dedicated runner class, keep the dataset stable, use at least 30 measured iterations, and increase iterations when branch results are close to the configured threshold.

@@ -196,6 +196,15 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-javadoc-plugin</artifactId>
                 <version>3.11.2</version>
+                <executions>
+                    <execution>
+                        <id>verify-javadocs</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>javadoc</goal>
+                        </goals>
+                    </execution>
+                </executions>
                 <configuration>
                     <author>true</author>
                     <doclint>all,-missing</doclint>
@@ -231,4 +240,39 @@
             </plugin>
         </plugins>
     </build>
+
+    <!--
+        Dependency-Check downloads and maintains the NVD data set.  Keep it out
+        of the default developer build, but make the security gate explicit and
+        repeatable for release hardening and scheduled scans:
+
+            mvn -Psecurity verify
+
+        CI can provide NVD_API_KEY to avoid the public feed rate limit.  The
+        normal CI path still runs GitHub dependency review and the container
+        Trivy gate, so opting into this profile does not hide vulnerability
+        checks from pull requests.
+    -->
+    <profiles>
+        <profile>
+            <id>security</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.owasp</groupId>
+                        <artifactId>dependency-check-maven</artifactId>
+                        <executions>
+                            <execution>
+                                <id>dependency-vulnerability-check</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>check</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

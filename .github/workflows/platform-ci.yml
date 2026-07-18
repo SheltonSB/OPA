@@ -22,10 +22,13 @@ jobs:
           cache: maven
       - name: Unit and integration tests
         run: mvn --batch-mode --no-transfer-progress verify
+      - name: Require Docker-backed integration evidence
+        run: python3 scripts/require-container-tests.py target/surefire-reports
       - name: Publish test and coverage summary
         if: always()
         run: |
           python3 scripts/summarize-verification.py target/surefire-reports target/site/jacoco/jacoco.xml >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/summarize-verification.py target/surefire-reports target/site/jacoco/jacoco.xml --write-badges build/evidence-badges
       - name: Upload test reports
         if: always() && hashFiles('target/surefire-reports/**') != ''
         uses: actions/upload-artifact@v7
@@ -39,6 +42,13 @@ jobs:
         with:
           name: jacoco-coverage
           path: target/site/jacoco
+      - name: Upload evidence badges
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: evidence-badges
+          path: build/evidence-badges
+          if-no-files-found: warn
       - name: Upload SBOM
         uses: actions/upload-artifact@v7
         with:

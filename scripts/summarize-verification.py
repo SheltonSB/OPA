@@ -59,10 +59,14 @@ def main() -> None:
 
     if args.write_badges:
         args.write_badges.mkdir(parents=True, exist_ok=True)
-        test_color = "#4c1" if failures + errors == 0 else "#e05d44"
+        # A skipped integration test is not a green evidence signal. Keep the
+        # badge useful on developer machines while making a partial run
+        # visually distinct from a complete CI run.
+        test_color = ("#e05d44" if failures + errors else
+                      "#dfb317" if skipped else "#4c1")
         coverage_color = "#4c1" if coverage >= 80 else "#dfb317" if coverage >= 60 else "#e05d44"
         (args.write_badges / "tests.svg").write_text(
-            badge("tests", f"{passed} passed", test_color), encoding="utf-8")
+            badge("tests", f"{passed}/{tests} passed", test_color), encoding="utf-8")
         (args.write_badges / "coverage.svg").write_text(
             badge("coverage", f"{coverage:.1f}%", coverage_color), encoding="utf-8")
 

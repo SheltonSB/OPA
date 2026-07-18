@@ -18,8 +18,8 @@ opa-policy-guard:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
-    - curl -fsSLo /usr/local/bin/opa https://openpolicyagent.org/downloads/v1.16.2/opa_linux_amd64_static
-    - echo '4ab4b89c131e6df3fed28b0b164083b6641ad67c86ab4c12d417ecfb93838ef1  /usr/local/bin/opa' | sha256sum -c -
+    - curl -fsSLo /usr/local/bin/opa https://openpolicyagent.org/downloads/v1.18.2/opa_linux_amd64_static
+    - echo '9903e5125ac281104f2c4b7371d10cc3b74a98933743fcbfc174f9bf0ab20de8  /usr/local/bin/opa' | sha256sum -c -
     - chmod 0755 /usr/local/bin/opa
     - git fetch origin "$CI_MERGE_REQUEST_DIFF_BASE_SHA"
     - git worktree add --detach .opa-guard-baseline "$CI_MERGE_REQUEST_DIFF_BASE_SHA"
