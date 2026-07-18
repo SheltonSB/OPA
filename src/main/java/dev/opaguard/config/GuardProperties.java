@@ -8,6 +8,24 @@ import org.springframework.validation.annotation.Validated;
 
 import java.nio.file.Path;
 
+/**
+ * Validated configuration for local CI benchmark execution.
+ *
+ * @param opaExecutable trusted OPA executable name or absolute path
+ * @param query fully qualified decision query
+ * @param baselinePolicy baseline policy path
+ * @param candidatePolicy candidate policy path
+ * @param benchmarkDataset benchmark input dataset
+ * @param maximumLatencyRegressionPercent allowed latency increase
+ * @param maximumMemoryRegressionPercent allowed memory increase
+ * @param minimumIterations measured iterations per dataset
+ * @param warmupIterations unmeasured warmup iterations
+ * @param markdownOutput Markdown report destination
+ * @param jsonOutput JSON report destination
+ * @param processTimeoutSeconds per-evaluation timeout
+ * @param failOnDecisionChange whether correctness differences fail the run
+ * @author Shelton Bumhe
+ */
 @Validated
 @ConfigurationProperties(prefix = "opa-guard")
 public record GuardProperties(

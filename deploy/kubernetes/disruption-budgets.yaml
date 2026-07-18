@@ -1,0 +1,14 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: coordinator}
+spec: {minAvailable: 2, selector: {matchLabels: {app.kubernetes.io/name: opa-guard-coordinator}}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: worker}
+spec: {maxUnavailable: 10%, selector: {matchLabels: {app.kubernetes.io/name: opa-guard-worker}}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: analyzer}
+spec: {minAvailable: 2, selector: {matchLabels: {app.kubernetes.io/name: opa-guard-analyzer}}}

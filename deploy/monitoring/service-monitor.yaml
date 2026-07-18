@@ -1,0 +1,25 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata: {name: opa-guard-coordinator, namespace: monitoring}
+spec:
+  namespaceSelector: {matchNames: [opa-guard]}
+  selector: {matchLabels: {app.kubernetes.io/name: opa-guard-coordinator}}
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: 15s
+      authorization: {type: Bearer, credentials: {name: opa-guard-metrics-token, key: token}}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata: {name: opa-guard-workers, namespace: monitoring}
+spec:
+  namespaceSelector: {matchNames: [opa-guard]}
+  selector:
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: In, values: [opa-guard-worker, opa-guard-analyzer]}
+  endpoints:
+    - port: metrics
+      path: /actuator/prometheus
+      interval: 15s
+      authorization: {type: Bearer, credentials: {name: opa-guard-metrics-token, key: token}}

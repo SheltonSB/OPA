@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: opa-guard
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - serviceaccounts.yaml
+  - coordinator.yaml
+  - worker.yaml
+  - analyzer.yaml
+  - autoscaling.yaml
+  - disruption-budgets.yaml
+  - network-policies.yaml
+  - ingress.yaml
+  - artifact-pvc.yaml
+  - migration-job.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: opa-policy-performance-guard

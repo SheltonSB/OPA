@@ -1,0 +1,34 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: opa-guard-migration-v1
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {app.kubernetes.io/name: opa-guard-migration}}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: opa-guard-coordinator
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: migrate
+          image: ghcr.io/example/opa-policy-performance-guard:1.0.0
+          envFrom:
+            - configMapRef: {name: opa-guard-config}
+            - secretRef: {name: opa-guard-migration-secrets}
+          env:
+            - {name: OPA_GUARD_MODE, value: migration}
+            - {name: SPRING_FLYWAY_ENABLED, value: "true"}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]

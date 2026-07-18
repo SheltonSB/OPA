@@ -3,12 +3,29 @@ spring:
     banner-mode: off
   application:
     name: opa-policy-performance-guard
+  threads:
+    virtual:
+      enabled: true
+  kafka:
+    consumer:
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      properties:
+        isolation.level: read_committed
+    listener:
+      ack-mode: manual_immediate
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
 
 logging:
   level:
     root: WARN
 
 opa-guard:
+  mode: ${OPA_GUARD_MODE:cli}
   opa-executable: ${OPA_EXECUTABLE:opa}
   query: data.authz.allow
   baseline-policy: baseline/policy
@@ -22,3 +39,30 @@ opa-guard:
   json-output: build/reports/opa-guard.json
   process-timeout-seconds: 30
   fail-on-decision-change: true
+  security:
+    jwk-set-uri: ${OPA_GUARD_JWK_SET_URI:https://invalid.example/.well-known/jwks.json}
+  artifacts:
+    root: ${OPA_GUARD_ARTIFACT_ROOT:/var/lib/opa-guard/artifacts}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: opa-policy-performance-guard
+
+server:
+  shutdown: graceful
+  max-http-request-header-size: 16KB
+  tomcat:
+    max-swallow-size: 1MB
+    threads:
+      max: 200
+
+spring.lifecycle.timeout-per-shutdown-phase: 30s

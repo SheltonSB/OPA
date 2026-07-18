@@ -1,0 +1,35 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata: {name: opa-guard-job-requested, labels: {strimzi.io/cluster: opa-guard}}
+spec:
+  topicName: opa.guard.benchmark-job-requested.v1
+  partitions: 256
+  replicas: 3
+  config: {retention.ms: "604800000", min.insync.replicas: "2", cleanup.policy: delete}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata: {name: opa-guard-shard-completed, labels: {strimzi.io/cluster: opa-guard}}
+spec:
+  topicName: opa.guard.benchmark-shard-completed.v1
+  partitions: 256
+  replicas: 3
+  config: {retention.ms: "604800000", min.insync.replicas: "2", cleanup.policy: delete}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata: {name: opa-guard-analysis-completed, labels: {strimzi.io/cluster: opa-guard}}
+spec:
+  topicName: opa.guard.analysis-completed.v1
+  partitions: 128
+  replicas: 3
+  config: {retention.ms: "2592000000", min.insync.replicas: "2", cleanup.policy: delete}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata: {name: opa-guard-dead-letter, labels: {strimzi.io/cluster: opa-guard}}
+spec:
+  topicName: opa.guard.dead-letter.v1
+  partitions: 64
+  replicas: 3
+  config: {retention.ms: "2592000000", min.insync.replicas: "2", cleanup.policy: delete}

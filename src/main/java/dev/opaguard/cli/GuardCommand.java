@@ -10,11 +10,21 @@ import dev.opaguard.report.JsonReportWriter;
 import dev.opaguard.report.MarkdownReportWriter;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 
+/**
+ * Runs the single-process CI workflow and exposes a stable process exit code.
+ *
+ * <p>Exit code {@code 0} means the guard passed, {@code 1} means a configured
+ * gate failed, and {@code 2} means the benchmark could not be completed.</p>
+ *
+ * @author Shelton Bumhe
+ */
 @Component
+@ConditionalOnProperty(name = "opa-guard.mode", havingValue = "cli", matchIfMissing = true)
 public class GuardCommand implements ApplicationRunner {
     private final GuardProperties properties;
     private final DatasetLoader datasetLoader;
@@ -66,6 +76,11 @@ public class GuardCommand implements ApplicationRunner {
         }
     }
 
+    /**
+     * Returns the result to be used by the application launcher.
+     *
+     * @return {@code 0} for pass, {@code 1} for regression, or {@code 2} for an execution error
+     */
     public int exitCode() {
         return exitCode;
     }

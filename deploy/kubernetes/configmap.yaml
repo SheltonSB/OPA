@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opa-guard-config
+data:
+  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-rw.database.svc:5432/opa_guard?sslmode=verify-full
+  SPRING_DATA_REDIS_HOST: redis-master.cache.svc
+  SPRING_DATA_REDIS_SSL_ENABLED: "true"
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka-bootstrap.streaming.svc:9093
+  SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL: SASL_SSL
+  SPRING_KAFKA_PROPERTIES_SASL_MECHANISM: SCRAM-SHA-512
+  OPA_GUARD_JWK_SET_URI: https://identity.example.com/.well-known/jwks.json
+  OPA_GUARD_ARTIFACT_ROOT: /artifacts
+  SPRING_FLYWAY_ENABLED: "false"
+  JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -Djava.io.tmpdir=/tmp

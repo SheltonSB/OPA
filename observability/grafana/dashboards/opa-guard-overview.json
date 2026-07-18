@@ -1,0 +1,24 @@
+{
+  "uid": "opa-guard-overview",
+  "title": "OPA Policy Performance Guard",
+  "schemaVersion": 41,
+  "refresh": "30s",
+  "tags": ["opa", "policy", "performance"],
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {"id": 1, "type": "timeseries", "title": "HTTP request rate", "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [{"expr": "sum(rate(http_server_requests_seconds_count{application=\"opa-policy-performance-guard\"}[5m])) by (instance)", "legendFormat": "{{instance}}"}]},
+    {"id": 2, "type": "timeseries", "title": "p99 API latency", "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [{"expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{application=\"opa-policy-performance-guard\"}[5m])) by (le))", "legendFormat": "p99"}]},
+    {"id": 3, "type": "stat", "title": "Outbox backlog", "gridPos": {"x": 0, "y": 8, "w": 6, "h": 5},
+      "targets": [{"expr": "sum(opa_guard_outbox_backlog)"}]},
+    {"id": 4, "type": "timeseries", "title": "Outbox publish failures", "gridPos": {"x": 6, "y": 8, "w": 9, "h": 5},
+      "targets": [{"expr": "sum(rate(opa_guard_outbox_publish_failures_total[5m]))"}]},
+    {"id": 5, "type": "timeseries", "title": "Kafka consumer lag", "gridPos": {"x": 15, "y": 8, "w": 9, "h": 5},
+      "targets": [{"expr": "sum(kafka_consumer_fetch_manager_records_lag_max) by (spring_id)"}]},
+    {"id": 6, "type": "timeseries", "title": "JVM heap", "gridPos": {"x": 0, "y": 13, "w": 12, "h": 7},
+      "targets": [{"expr": "sum(jvm_memory_used_bytes{area=\"heap\"}) by (instance)", "legendFormat": "{{instance}}"}]},
+    {"id": 7, "type": "timeseries", "title": "Process CPU", "gridPos": {"x": 12, "y": 13, "w": 12, "h": 7},
+      "targets": [{"expr": "process_cpu_usage", "legendFormat": "{{instance}}"}]}
+  ]
+}
