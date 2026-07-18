@@ -44,7 +44,7 @@
         <testcontainers.version>1.21.3</testcontainers.version>
         <springdoc.version>2.8.17</springdoc.version>
         <resilience4j.version>2.3.0</resilience4j.version>
-        <jacoco.version>0.8.13</jacoco.version>
+        <jacoco.version>0.8.15</jacoco.version>
         <project.build.outputTimestamp>2026-07-18T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
