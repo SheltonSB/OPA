@@ -9,13 +9,13 @@ source -> compile/test -> OPA baseline gate -> CodeQL -> dependency scan -> imag
 
 `platform-ci.yml` implements compilation, JUnit/Testcontainers, JaCoCo, CycloneDX, GitHub dependency review, an OCI build, Trivy, and Kubernetes rendering. The dedicated `codeql.yml` performs Java CodeQL analysis. `opa-policy-performance-guard.yml` performs the actual main-versus-PR Rego gate and updates one pull-request comment. GitLab, Jenkins, and Azure examples provide equivalent local CLI behavior.
 
-Dependabot tracks Maven, GitHub Actions, and Docker updates. Release builds generate a CycloneDX SBOM, scan the published image with Trivy, sign the immutable digest through keyless Cosign/OIDC, and create GitHub artifact attestations for the image and downloadable files.
+Dependabot tracks Maven, GitHub Actions, and Docker updates. Release builds generate a CycloneDX SBOM, scan the published image with Trivy, sign the immutable digest through keyless Cosign/OIDC, and create GitHub artifact attestations for the image and downloadable files. The Trivy action is pinned to the signed v0.36.0 commit rather than a mutable tag because its upstream project disclosed a 2026 tag-compromise incident.
 
 ## Implemented release pipeline
 
 A pushed `v*` tag must exactly match the non-SNAPSHOT Maven version. The workflow rebuilds and tests the artifact, generates Javadoc and a CycloneDX SBOM, publishes the GHCR image, signs its digest, scans it, attests release files/image, and creates a GitHub Release with checksums and the example report.
 
-The Maven output timestamp is fixed and the CycloneDX serial number is omitted because a random BOM UUID made the executable JAR nondeterministic. Two clean local package builds from the same source both produced SHA-256 `9b7d1ccf016369ee068e4b83780a55a612e0c9b510e34350507cfbf6b49e9937`. A different source revision is expected to produce a different digest.
+The Maven output timestamp is fixed and the CycloneDX serial number is omitted because a random BOM UUID made the executable JAR nondeterministic. Two clean local package builds from the corrected release source both produced SHA-256 `9157d840059a09b0038c87eaeb80377f983f5e0ed19d2ed28f540b49b43caff3`. A different source revision is expected to produce a different digest.
 
 ## Future deployment promotion
 
