@@ -18,7 +18,7 @@ spec:
       securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: analyzer
-          image: ghcr.io/example/opa-policy-performance-guard:1.0.0
+          image: ghcr.io/sheltonsb/opa-policy-performance-guard:1.0.0
           envFrom:
             - configMapRef: {name: opa-guard-config}
             - secretRef: {name: opa-guard-secrets}

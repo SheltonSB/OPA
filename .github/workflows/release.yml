@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+  security-events: write
+
+env:
+  IMAGE_NAME: ghcr.io/sheltonsb/opa-policy-performance-guard
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Verify tag matches the Maven version
+        id: version
+        run: |
+          version="$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)"
+          test "${GITHUB_REF_NAME}" = "v${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and test release
+        run: mvn --batch-mode --no-transfer-progress clean verify javadoc:javadoc
+
+      - name: Stage release assets
+        run: |
+          mkdir -p dist
+          cp "target/opa-policy-performance-guard-${{ steps.version.outputs.version }}.jar" dist/
+          cp target/classes/META-INF/sbom/application.cdx.json \
+            "dist/opa-guard-${{ steps.version.outputs.version }}.cdx.json"
+          cp docs/examples/benchmark-report.md dist/example-benchmark-report.md
+          sha256sum dist/* > dist/SHA256SUMS
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and publish image
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+            ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+
+      - uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Sign image with GitHub OIDC
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: cosign sign --yes "${IMAGE_NAME}@${DIGEST}"
+
+      - name: Scan published image
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}@${{ steps.image.outputs.digest }}
+          format: sarif
+          output: trivy-release.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+      - name: Upload release scan
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-release.sarif
+
+      - name: Attest release files and SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/opa-policy-performance-guard-${{ steps.version.outputs.version }}.jar
+            dist/SHA256SUMS
+          sbom-path: dist/opa-guard-${{ steps.version.outputs.version }}.cdx.json
+
+      - name: Attest container image
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/* --verify-tag --generate-notes --title "OPA Policy Performance Guard ${GITHUB_REF_NAME}"

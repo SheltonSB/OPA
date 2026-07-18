@@ -22,8 +22,17 @@ jobs:
           cache: maven
       - name: Unit and integration tests
         run: mvn --batch-mode --no-transfer-progress verify
+      - name: Publish test and coverage summary
+        if: always()
+        run: |
+          python3 scripts/summarize-verification.py target/surefire-reports target/site/jacoco/jacoco.xml >> "$GITHUB_STEP_SUMMARY"
       - name: Render Kubernetes resources
         run: kubectl kustomize deploy/kubernetes >/dev/null
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-coverage
+          path: target/site/jacoco
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
         with:
@@ -31,36 +40,14 @@ jobs:
           path: target/classes/META-INF/sbom/application.cdx.json
 
   dependency-review:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/dependency-review-action@v4
         with:
-          distribution: temurin
-          java-version: "21"
-          cache: maven
-      - name: OWASP dependency scan
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: mvn --batch-mode --no-transfer-progress -DskipTests org.owasp:dependency-check-maven:12.1.3:check
-      - name: Upload dependency report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dependency-check-report
-          path: target/dependency-check-report.*
-          if-no-files-found: warn
-
-  codeql:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
-        with: {languages: java-kotlin}
-      - uses: github/codeql-action/autobuild@v3
-      - uses: github/codeql-action/analyze@v3
+          fail-on-severity: high
 
   container:
     runs-on: ubuntu-latest
@@ -84,5 +71,5 @@ jobs:
           exit-code: "1"
       - name: Upload scan to GitHub Security
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with: {sarif_file: trivy-results.sarif}

@@ -11,7 +11,9 @@ FROM openpolicyagent/opa:1.16.2-static AS opa
 FROM gcr.io/distroless/java21-debian12:nonroot
 LABEL org.opencontainers.image.title="OPA Policy Performance Guard" \
       org.opencontainers.image.description="Distributed OPA policy regression platform" \
-      org.opencontainers.image.source="https://github.com/example/opa-policy-performance-guard"
+      org.opencontainers.image.source="https://github.com/SheltonSB/OPA" \
+      org.opencontainers.image.version="1.0.0" \
+      org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=opa --chown=nonroot:nonroot /opa /usr/local/bin/opa
 COPY --from=build --chown=nonroot:nonroot /workspace/target/opa-policy-performance-guard-*.jar /app/opa-guard.jar
 USER nonroot:nonroot

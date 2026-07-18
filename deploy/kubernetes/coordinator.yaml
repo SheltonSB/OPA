@@ -25,7 +25,7 @@ spec:
           labelSelector: {matchLabels: {app.kubernetes.io/name: opa-guard-coordinator}}
       containers:
         - name: coordinator
-          image: ghcr.io/example/opa-policy-performance-guard:1.0.0
+          image: ghcr.io/sheltonsb/opa-policy-performance-guard:1.0.0
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef: {name: opa-guard-config}
