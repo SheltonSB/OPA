@@ -52,7 +52,7 @@ The reported latency includes OPA CLI process startup. This makes comparisons re
 - Java 21+
 - Maven 3.9+
 - [OPA](https://www.openpolicyagent.org/docs/latest/#running-opa) on `PATH`
-- Docker only for the optional Testcontainers integration test
+- Docker Engine/Desktop with Docker Compose v2 for the distributed app and integration tests
 
 ## Quick start
 
@@ -144,6 +144,17 @@ Equivalent pipelines are provided for [GitLab](.gitlab-ci.yml), [Jenkins](Jenkin
 
 > **Prototype status:** these roles are implemented and covered by unit/container integration tests. They have not yet completed a multi-region production soak, a 5,000-job concurrency test, or a 10-billion-evaluation/day load test.
 
+Check the Docker host before starting the distributed topology:
+
+```bash
+bash scripts/check-docker.sh
+```
+
+The CLI can run directly on a host with OPA installed, but the coordinator,
+worker, analyzer, Kafka, PostgreSQL, Redis, Prometheus, and Grafana topology
+requires a running Docker daemon. Docker is an external host service; the
+application deliberately does not mount or control the host Docker socket.
+
 Build the OCI image with the pinned OPA runtime:
 
 ```bash
@@ -168,6 +179,13 @@ export GRAFANA_ADMIN_PASSWORD='use-a-local-secret-manager'
 export OPA_GUARD_JWK_SET_URI='https://your-idp.example/.well-known/jwks.json'
 export PROMETHEUS_TOKEN_FILE='/absolute/path/to/a-valid-metrics-reader-jwt-file'
 docker compose up --build
+```
+
+To validate Compose interpolation without starting containers, set the
+required secret variables and run:
+
+```bash
+CHECK_COMPOSE_CONFIG=1 bash scripts/check-docker.sh
 ```
 
 Compose is a developer topology: Kafka, PostgreSQL, and Redis are single-node. Production uses managed multi-AZ services and the manifests in `deploy/kubernetes`. Before applying those manifests:

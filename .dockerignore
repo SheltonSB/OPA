@@ -1,8 +1,13 @@
 .git
 .github
+.mvn
 target
 build
-.idea
 docs
+scripts
+src/test
 *.iml
-*.md
+.idea
+.DS_Store
+local-artifacts
+*.log
