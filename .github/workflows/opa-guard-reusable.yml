@@ -1,0 +1,201 @@
+name: OPA Policy Performance Guard (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      policy-path:
+        description: Repository-relative Rego policy path
+        required: false
+        type: string
+        default: policy
+      dataset-path:
+        description: Repository-relative benchmark dataset path
+        required: false
+        type: string
+        default: benchmark/dataset.json
+      query:
+        description: Fully qualified OPA decision query
+        required: true
+        type: string
+      base-sha:
+        description: Optional exact base SHA; defaults to the pull-request base SHA
+        required: false
+        type: string
+        default: ''
+    outputs:
+      status:
+        description: PASS or FAIL
+        value: ${{ jobs['opa-guard'].outputs.status }}
+      decision-mismatch-count:
+        description: Number of decision mismatches
+        value: ${{ jobs['opa-guard'].outputs['decision-mismatch-count'] }}
+      average-regression-percent:
+        description: Average latency regression percentage
+        value: ${{ jobs['opa-guard'].outputs['average-regression-percent'] }}
+      p95-regression-percent:
+        description: p95 latency regression percentage
+        value: ${{ jobs['opa-guard'].outputs['p95-regression-percent'] }}
+      memory-regression-percent:
+        description: Peak memory regression percentage
+        value: ${{ jobs['opa-guard'].outputs['memory-regression-percent'] }}
+      markdown-report:
+        description: Markdown report path
+        value: ${{ jobs['opa-guard'].outputs['markdown-report'] }}
+      json-report:
+        description: JSON report path
+        value: ${{ jobs['opa-guard'].outputs['json-report'] }}
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  opa-guard:
+    name: Compare pull-request policy with base
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      status: ${{ steps.collect.outputs.status }}
+      decision-mismatch-count: ${{ steps.collect.outputs['decision-mismatch-count'] }}
+      average-regression-percent: ${{ steps.collect.outputs['average-regression-percent'] }}
+      p95-regression-percent: ${{ steps.collect.outputs['p95-regression-percent'] }}
+      memory-regression-percent: ${{ steps.collect.outputs['memory-regression-percent'] }}
+      markdown-report: ${{ steps.collect.outputs['markdown-report'] }}
+      json-report: ${{ steps.collect.outputs['json-report'] }}
+    steps:
+      - name: Check out pull-request head
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          path: candidate
+
+      - name: Fetch exact pull-request base
+        working-directory: candidate
+        shell: bash
+        env:
+          BASE_SHA: ${{ inputs.base-sha || github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git remote add opa-guard-base "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 opa-guard-base "$BASE_SHA"
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: candidate/pom.xml
+
+      - name: Install OPA CLI
+        uses: open-policy-agent/setup-opa@v2
+        with:
+          version: 1.18.2
+
+      - name: Download pinned guard release
+        working-directory: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tools
+          url='https://github.com/sheltonsb/opa-policy-performance-guard/releases/download/v1.0.0/opa-policy-performance-guard-1.0.0.jar'
+          curl --fail --location --retry 3 --retry-delay 2 --silent --show-error "$url" \
+            --output tools/opa-policy-performance-guard-1.0.0.jar
+          [[ -s tools/opa-policy-performance-guard-1.0.0.jar ]] || {
+            echo '::error::The published v1.0.0 guard release asset is missing.'
+            exit 40
+          }
+          if ! jar tf tools/opa-policy-performance-guard-1.0.0.jar \
+              | grep -q 'dev/opaguard/cli/DeveloperCommandService.class'; then
+            echo '::warning::The pinned release predates the repository-aware compare command; building the pinned guard source fallback.'
+            archive="$RUNNER_TEMP/opa-guard-source.tar.gz"
+            curl --fail --location --retry 3 --retry-delay 2 --silent --show-error \
+              'https://github.com/SheltonSB/OPA/archive/refs/heads/v1.tar.gz' --output "$archive"
+            mkdir -p "$RUNNER_TEMP/opa-guard-source"
+            tar -xzf "$archive" -C "$RUNNER_TEMP/opa-guard-source" --strip-components=1
+            mvn --batch-mode --no-transfer-progress -f "$RUNNER_TEMP/opa-guard-source/pom.xml" \
+              -DskipTests package
+            cp "$RUNNER_TEMP/opa-guard-source/target/opa-policy-performance-guard-1.0.0.jar" \
+              tools/opa-policy-performance-guard-1.0.0.jar
+          fi
+
+      - name: Run OPA Policy Performance Guard
+        id: guard
+        working-directory: candidate
+        shell: bash
+        env:
+          BASE_SHA: ${{ inputs.base-sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          POLICY_PATH: ${{ inputs.policy-path }}
+          DATASET_PATH: ${{ inputs.dataset-path }}
+          QUERY: ${{ inputs.query }}
+        run: |
+          set -o pipefail
+          java -jar tools/opa-policy-performance-guard-1.0.0.jar compare \
+            --base "$BASE_SHA" \
+            --candidate "$HEAD_SHA" \
+            --committed-only \
+            --policy-path "$POLICY_PATH" \
+            --dataset "$DATASET_PATH" \
+            --query "$QUERY"
+
+      - name: Collect outputs
+        id: collect
+        if: always()
+        working-directory: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          path = 'build/reports/opa-guard.json'
+          values = {
+              'status': 'ERROR',
+              'decision-mismatch-count': '0',
+              'average-regression-percent': 'n/a',
+              'p95-regression-percent': 'n/a',
+              'memory-regression-percent': 'n/a',
+              'markdown-report': 'candidate/build/reports/opa-guard.md',
+              'json-report': 'candidate/build/reports/opa-guard.json',
+          }
+          if os.path.isfile(path):
+              with open(path, encoding='utf-8') as handle:
+                  report = json.load(handle)
+              values['status'] = report.get('status', 'ERROR')
+              values['decision-mismatch-count'] = str(len(report.get('decision_mismatches', [])))
+              for comparison in report.get('comparisons', []):
+                  name = comparison.get('metric', '')
+                  value = str(comparison.get('regression_percent', 'n/a'))
+                  if name.startswith('Average latency'):
+                      values['average-regression-percent'] = value
+                  elif name.startswith('p95 latency'):
+                      values['p95-regression-percent'] = value
+                  elif name.startswith('Peak memory'):
+                      values['memory-regression-percent'] = value
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              for key, value in values.items():
+                  output.write(f'{key}={value}\n')
+          PY
+
+      - name: Add report to workflow summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f candidate/build/reports/opa-guard.md ]]; then
+            cat candidate/build/reports/opa-guard.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '## OPA Policy Performance Guard' >> "$GITHUB_STEP_SUMMARY"
+            echo 'The guard failed before producing a Markdown report.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opa-policy-performance-report
+          path: |
+            candidate/build/reports/opa-guard.md
+            candidate/build/reports/opa-guard.json
+          if-no-files-found: warn

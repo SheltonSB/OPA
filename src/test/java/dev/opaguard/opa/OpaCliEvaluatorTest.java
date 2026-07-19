@@ -55,6 +55,6 @@ class OpaCliEvaluatorTest {
         return new GuardProperties(
                 executable.toString(), "data.authz", Path.of("baseline"), Path.of("candidate"),
                 Path.of("dataset.json"), 10, 10, 1, 0,
-                Path.of("report.md"), Path.of("report.json"), 2, true);
+                Path.of("report.md"), Path.of("report.json"), 2, true, Path.of("policy"));
     }
 }

@@ -16,6 +16,8 @@ import java.util.Objects;
 
 /**
  * Bootstraps the guard in CLI, migration, or distributed service mode.
+ * Developer commands are exposed as non-option arguments, for example
+ * {@code opa-guard compare}.
  *
  * <p>The mode is selected with {@code --opa-guard.mode} or the
  * {@code OPA_GUARD_MODE} environment variable. CLI mode intentionally excludes
