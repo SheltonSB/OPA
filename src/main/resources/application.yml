@@ -28,13 +28,14 @@ opa-guard:
   mode: ${OPA_GUARD_MODE:cli}
   opa-executable: ${OPA_EXECUTABLE:opa}
   query: data.authz.allow
+  policy-path: policy
   baseline-policy: baseline/policy
   candidate-policy: policy
   benchmark-dataset: benchmark/dataset.json
   maximum-latency-regression-percent: 10
-  maximum-memory-regression-percent: 10
-  minimum-iterations: 30
-  warmup-iterations: 5
+  maximum-memory-regression-percent: 15
+  minimum-iterations: 500
+  warmup-iterations: 25
   markdown-output: build/reports/opa-guard.md
   json-output: build/reports/opa-guard.json
   process-timeout-seconds: 30

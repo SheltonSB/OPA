@@ -1,0 +1,23 @@
+#!/usr/bin/env sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+JAR="${OPA_GUARD_JAR:-}"
+
+if [ -z "$JAR" ] && [ -f "$SCRIPT_DIR/opa-policy-performance-guard-1.0.0.jar" ]; then
+  JAR="$SCRIPT_DIR/opa-policy-performance-guard-1.0.0.jar"
+fi
+if [ -z "$JAR" ] && [ -f "$SCRIPT_DIR/target/opa-policy-performance-guard-1.0.0.jar" ]; then
+  JAR="$SCRIPT_DIR/target/opa-policy-performance-guard-1.0.0.jar"
+fi
+
+if [ -z "$JAR" ]; then
+  echo "opa-guard: bundled JAR not found. Download a release or run 'mvn package' in the source repository." >&2
+  exit 40
+fi
+if ! command -v java >/dev/null 2>&1; then
+  echo "opa-guard: Java 21 or newer is required. Install a JDK and retry." >&2
+  exit 20
+fi
+
+exec java -jar "$JAR" "$@"

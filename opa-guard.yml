@@ -1,6 +1,7 @@
 opa-guard:
   opa-executable: opa
   query: data.authz.allow
+  policy-path: policy
   baseline-policy: baseline/policy
   candidate-policy: candidate/policy
   benchmark-dataset: benchmark/dataset.json

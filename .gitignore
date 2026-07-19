@@ -6,3 +6,4 @@ build/
 .opa-guard/
 .secrets/
 local-artifacts/
+dist/

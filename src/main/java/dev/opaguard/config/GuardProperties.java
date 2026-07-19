@@ -24,6 +24,7 @@ import java.nio.file.Path;
  * @param jsonOutput JSON report destination
  * @param processTimeoutSeconds per-evaluation timeout
  * @param failOnDecisionChange whether correctness differences fail the run
+ * @param policyPath repository-relative policy path used by the developer compare command
  * @author Shelton Bumhe
  */
 @Validated
@@ -41,5 +42,6 @@ public record GuardProperties(
         Path markdownOutput,
         Path jsonOutput,
         @Min(1) long processTimeoutSeconds,
-        boolean failOnDecisionChange) {
+        boolean failOnDecisionChange,
+        Path policyPath) {
 }

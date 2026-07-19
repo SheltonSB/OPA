@@ -54,12 +54,212 @@ The reported latency includes OPA CLI process startup. This makes comparisons re
 - [OPA](https://www.openpolicyagent.org/docs/latest/#running-opa) on `PATH`
 - Docker Engine/Desktop with Docker Compose v2 for the distributed app and integration tests
 
+## Integrate OPA and author Rego rules
+
+OPA is the policy engine being measured. Install it locally using the
+[official OPA installation instructions](https://www.openpolicyagent.org/docs/latest/#running-opa),
+then verify the binary:
+
+```bash
+opa version
+```
+
+Keep policies in a repository-relative directory (the default is `policy/`).
+Each Rego file declares a package and one or more rules. The configured query
+must point to the rule that returns the authorization decision. For example,
+`policy/authz.rego` exposes `data.authz.allow`:
+
+```rego
+package authz
+
+import rego.v1
+
+default allow := false
+
+allow if input.user.role == "admin"
+
+allow if {
+    input.action == "read"
+    input.resource.owner == input.user.id
+}
+```
+
+The same rule can be evaluated directly with OPA before benchmarking:
+
+```bash
+cat > /tmp/opa-input.json <<'JSON'
+{"user":{"id":"u-1","role":"admin"},"action":"delete","resource":{"owner":"u-2"}}
+JSON
+
+opa check --bundle policy
+opa eval --format pretty --data policy --input /tmp/opa-input.json \
+  'data.authz.allow'
+```
+
+The benchmark dataset contains the inputs that must produce stable decisions.
+Named cases are recommended because their IDs appear in mismatch reports:
+
+```json
+[
+  {
+    "id": "admin-can-delete",
+    "input": {
+      "user": {"id": "u-1", "role": "admin"},
+      "action": "delete",
+      "resource": {"owner": "u-2"}
+    }
+  },
+  {
+    "id": "member-cannot-delete",
+    "input": {
+      "user": {"id": "u-1", "role": "member"},
+      "action": "delete",
+      "resource": {"owner": "u-2"}
+    }
+  }
+]
+```
+
+Save that JSON as `benchmark/dataset.json`. The guard evaluates every case
+against both revisions and fails when a decision changes. Add ordinary OPA
+unit tests beside the policy when you need more detailed rule coverage:
+
+```rego
+package authz
+
+import rego.v1
+
+test_admin_can_delete if {
+    allow with input as {"user": {"role": "admin"}, "action": "delete"}
+}
+
+test_owner_can_read if {
+    allow with input as {
+        "user": {"id": "u-1", "role": "member"},
+        "action": "read",
+        "resource": {"owner": "u-1"}
+    }
+}
+```
+
+Run those tests with:
+
+```bash
+opa test policy
+```
+
+Connect the policy to the guard in `opa-guard.yml`:
+
+```yaml
+opa-guard:
+  opa-executable: opa
+  policy-path: policy
+  benchmark-dataset: benchmark/dataset.json
+  query: data.authz.allow
+  maximum-latency-regression-percent: 10
+  maximum-memory-regression-percent: 15
+  minimum-iterations: 500
+  warmup-iterations: 25
+  fail-on-decision-change: true
+```
+
+For `opa-guard compare`, `policy-path`, `benchmark-dataset`, and `query` are
+the developer-facing settings. The command creates isolated baseline and
+candidate policy directories internally; do not point those settings at a
+manually maintained checkout. To use a different rule, change only the query,
+for example `data.rbac.permit`, and ensure the dataset inputs exercise that
+rule.
+
+When implementing rules, prefer keyed objects and indexed lookups for hot
+authorization paths. Large array scans, nested comprehensions, repeated data
+loading, and rules that return large objects can create latency or memory
+regressions. Add representative worst-case inputs to the dataset so those
+changes are measured before merge.
+
 ## Quick start
 
 Build the executable jar:
 
 ```bash
 mvn verify
+```
+
+### Five-minute developer workflow
+
+The repository also ships a first-class launcher. After building once, run it
+from any Git repository that contains Rego policies:
+
+```bash
+./opa-guard init       # creates missing config, dataset, and PR workflow files
+./opa-guard validate   # checks Git, OPA, dataset, Rego, and query resolution
+./opa-guard compare    # compares the current branch with its default base
+./opa-guard doctor     # prints a prerequisite-by-prerequisite health check
+```
+
+`compare` resolves its baseline in this order: explicit `--base`, the GitHub
+PR base when running in Actions, `origin/HEAD`, `main`, then `master`. The
+candidate is `HEAD` by default. It creates detached temporary worktrees and
+never checks out, resets, or deletes the active branch. The candidate policy,
+dataset, and configuration are copied from the current working tree, so a
+policy edit that has not been committed is included and reported as:
+
+```text
+Candidate includes uncommitted working-tree changes.
+```
+
+Use `--committed-only` to compare only the committed candidate revision. Useful
+overrides are `--base main`, `--candidate HEAD`, `--policy-path policy`,
+`--dataset benchmark/dataset.json`, `--query data.authz.allow`, and
+`--config opa-guard.yml`. CLI values take precedence over YAML values, which
+take precedence over built-in defaults. Baseline and candidate policy paths are
+generated internally; they never need to be configured by users.
+
+The launcher locates a bundled release JAR, or the freshly built
+`target/opa-policy-performance-guard-1.0.0.jar` in this source repository. It
+does not require Maven in a consumer repository. Native execution requires OPA
+on `PATH`; the Docker image includes OPA 1.18.2.
+
+Developer command exit codes are stable:
+
+| Code | Meaning |
+|---:|---|
+| `0` | Pass |
+| `10` | Authorization decision mismatch |
+| `11` | Latency regression |
+| `12` | Memory regression |
+| `13` | Multiple guard failures |
+| `20` | Invalid configuration or runtime prerequisite |
+| `21` | Git repository/ref resolution failure |
+| `22` | Missing policy or dataset |
+| `23` | Invalid Rego or unresolved query |
+| `30` | OPA execution failure |
+| `31` | Benchmark timeout |
+| `40` | Internal error |
+
+Reports are written to `build/reports/opa-guard.md` and
+`build/reports/opa-guard.json`. A deliberately slower policy or a changed
+decision is a safe way to verify that the command returns a non-zero code.
+
+Typical terminal summaries look like:
+
+```text
+PASS
+Decision mismatches: 0
+Average latency regression: +3.12%
+p95 regression: +4.87%
+Memory regression: +2.10%
+Blocking reasons: none
+```
+
+and a blocked change looks like:
+
+```text
+FAIL
+Decision mismatches: 1
+Average latency regression: +18.40%
+p95 regression: +22.15%
+Memory regression: +4.00%
+Blocking reasons: authorization decision changes detected; p95 latency (ms) exceeded its threshold
 ```
 
 Run the included policy against itself to validate the setup:
@@ -109,13 +309,14 @@ Copy [`opa-guard.yml`](opa-guard.yml) and customize the `opa-guard` block:
 opa-guard:
   opa-executable: opa
   query: data.authz.allow
+  policy-path: policy
   baseline-policy: /work/main/policy
   candidate-policy: /work/pull-request/policy
   benchmark-dataset: benchmark/dataset.json
   maximum-latency-regression-percent: 10
   maximum-memory-regression-percent: 15
-  minimum-iterations: 30
-  warmup-iterations: 5
+  minimum-iterations: 500
+  warmup-iterations: 25
   process-timeout-seconds: 30
   fail-on-decision-change: true
   markdown-output: build/reports/opa-guard.md
@@ -177,6 +378,31 @@ memory threshold (performance failure). Restore the policy after verifying the
 expected failed check.
 
 Equivalent pipelines are provided for [GitLab](.gitlab-ci.yml), [Jenkins](Jenkinsfile), and [Azure DevOps](azure-pipelines.yml).
+
+For a consumer repository, the reusable workflow reduces setup to:
+
+```yaml
+name: OPA Guard
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  opa-guard:
+    uses: SheltonSB/opa-policy-performance-guard/.github/workflows/opa-guard-reusable.yml@v1
+    with:
+      policy-path: policy
+      dataset-path: benchmark/dataset.json
+      query: data.authz.allow
+```
+
+The reusable workflow checks out the exact PR head, fetches the exact base SHA,
+runs `opa-guard compare --committed-only`, preserves the guard exit code, adds
+the Markdown report to the job summary, uploads both report formats, and
+exposes status, mismatch count, regression percentages, and report paths as
+workflow outputs. Pin the reusable workflow to a release tag or commit in
+production.
 
 ## Distributed platform
 

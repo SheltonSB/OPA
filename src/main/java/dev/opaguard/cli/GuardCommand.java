@@ -18,8 +18,10 @@ import java.time.Duration;
 /**
  * Runs the single-process CI workflow and exposes a stable process exit code.
  *
- * <p>Exit code {@code 0} means the guard passed, {@code 1} means a configured
- * gate failed, and {@code 2} means the benchmark could not be completed.</p>
+ * <p>The legacy no-command invocation retains exit codes {@code 0}, {@code 1},
+ * and {@code 2}. The developer commands ({@code init}, {@code validate},
+ * {@code compare}, and {@code doctor}) delegate to {@link DeveloperCommandService}
+ * and expose the documented stable exit-code table.</p>
  *
  * @author Shelton Bumhe
  */
@@ -32,6 +34,7 @@ public class GuardCommand implements ApplicationRunner {
     private final RegressionAnalyzer analyzer;
     private final MarkdownReportWriter markdownWriter;
     private final JsonReportWriter jsonWriter;
+    private final DeveloperCommandService developerCommands;
     private volatile int exitCode = 2;
 
     public GuardCommand(
@@ -40,17 +43,24 @@ public class GuardCommand implements ApplicationRunner {
             BenchmarkRunner benchmarkRunner,
             RegressionAnalyzer analyzer,
             MarkdownReportWriter markdownWriter,
-            JsonReportWriter jsonWriter) {
+            JsonReportWriter jsonWriter,
+            DeveloperCommandService developerCommands) {
         this.properties = properties;
         this.datasetLoader = datasetLoader;
         this.benchmarkRunner = benchmarkRunner;
         this.analyzer = analyzer;
         this.markdownWriter = markdownWriter;
         this.jsonWriter = jsonWriter;
+        this.developerCommands = developerCommands;
     }
 
     @Override
     public void run(ApplicationArguments args) {
+        String command = args.getNonOptionArgs().stream().findFirst().orElse(null);
+        if (command != null) {
+            exitCode = developerCommands.execute(command, args);
+            return;
+        }
         try {
             var cases = datasetLoader.load(properties.benchmarkDataset());
             Duration timeout = Duration.ofSeconds(properties.processTimeoutSeconds());
