@@ -54,6 +54,128 @@ The reported latency includes OPA CLI process startup. This makes comparisons re
 - [OPA](https://www.openpolicyagent.org/docs/latest/#running-opa) on `PATH`
 - Docker Engine/Desktop with Docker Compose v2 for the distributed app and integration tests
 
+## Integrate OPA and author Rego rules
+
+OPA is the policy engine being measured. Install it locally using the
+[official OPA installation instructions](https://www.openpolicyagent.org/docs/latest/#running-opa),
+then verify the binary:
+
+```bash
+opa version
+```
+
+Keep policies in a repository-relative directory (the default is `policy/`).
+Each Rego file declares a package and one or more rules. The configured query
+must point to the rule that returns the authorization decision. For example,
+`policy/authz.rego` exposes `data.authz.allow`:
+
+```rego
+package authz
+
+import rego.v1
+
+default allow := false
+
+allow if input.user.role == "admin"
+
+allow if {
+    input.action == "read"
+    input.resource.owner == input.user.id
+}
+```
+
+The same rule can be evaluated directly with OPA before benchmarking:
+
+```bash
+cat > /tmp/opa-input.json <<'JSON'
+{"user":{"id":"u-1","role":"admin"},"action":"delete","resource":{"owner":"u-2"}}
+JSON
+
+opa check --bundle policy
+opa eval --format pretty --data policy --input /tmp/opa-input.json \
+  'data.authz.allow'
+```
+
+The benchmark dataset contains the inputs that must produce stable decisions.
+Named cases are recommended because their IDs appear in mismatch reports:
+
+```json
+[
+  {
+    "id": "admin-can-delete",
+    "input": {
+      "user": {"id": "u-1", "role": "admin"},
+      "action": "delete",
+      "resource": {"owner": "u-2"}
+    }
+  },
+  {
+    "id": "member-cannot-delete",
+    "input": {
+      "user": {"id": "u-1", "role": "member"},
+      "action": "delete",
+      "resource": {"owner": "u-2"}
+    }
+  }
+]
+```
+
+Save that JSON as `benchmark/dataset.json`. The guard evaluates every case
+against both revisions and fails when a decision changes. Add ordinary OPA
+unit tests beside the policy when you need more detailed rule coverage:
+
+```rego
+package authz
+
+import rego.v1
+
+test_admin_can_delete if {
+    allow with input as {"user": {"role": "admin"}, "action": "delete"}
+}
+
+test_owner_can_read if {
+    allow with input as {
+        "user": {"id": "u-1", "role": "member"},
+        "action": "read",
+        "resource": {"owner": "u-1"}
+    }
+}
+```
+
+Run those tests with:
+
+```bash
+opa test policy
+```
+
+Connect the policy to the guard in `opa-guard.yml`:
+
+```yaml
+opa-guard:
+  opa-executable: opa
+  policy-path: policy
+  benchmark-dataset: benchmark/dataset.json
+  query: data.authz.allow
+  maximum-latency-regression-percent: 10
+  maximum-memory-regression-percent: 15
+  minimum-iterations: 500
+  warmup-iterations: 25
+  fail-on-decision-change: true
+```
+
+For `opa-guard compare`, `policy-path`, `benchmark-dataset`, and `query` are
+the developer-facing settings. The command creates isolated baseline and
+candidate policy directories internally; do not point those settings at a
+manually maintained checkout. To use a different rule, change only the query,
+for example `data.rbac.permit`, and ensure the dataset inputs exercise that
+rule.
+
+When implementing rules, prefer keyed objects and indexed lookups for hot
+authorization paths. Large array scans, nested comprehensions, repeated data
+loading, and rules that return large objects can create latency or memory
+regressions. Add representative worst-case inputs to the dataset so those
+changes are measured before merge.
+
 ## Quick start
 
 Build the executable jar:
@@ -187,13 +309,14 @@ Copy [`opa-guard.yml`](opa-guard.yml) and customize the `opa-guard` block:
 opa-guard:
   opa-executable: opa
   query: data.authz.allow
+  policy-path: policy
   baseline-policy: /work/main/policy
   candidate-policy: /work/pull-request/policy
   benchmark-dataset: benchmark/dataset.json
   maximum-latency-regression-percent: 10
   maximum-memory-regression-percent: 15
-  minimum-iterations: 30
-  warmup-iterations: 5
+  minimum-iterations: 500
+  warmup-iterations: 25
   process-timeout-seconds: 30
   fail-on-decision-change: true
   markdown-output: build/reports/opa-guard.md
