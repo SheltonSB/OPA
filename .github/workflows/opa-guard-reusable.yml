@@ -64,7 +64,7 @@ jobs:
       json-report: ${{ steps.collect.outputs['json-report'] }}
     steps:
       - name: Check out pull-request head
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
@@ -82,7 +82,7 @@ jobs:
           git fetch --no-tags --depth=1 opa-guard-base "$BASE_SHA"
 
       - name: Set up Java 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -192,7 +192,7 @@ jobs:
 
       - name: Upload reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: opa-policy-performance-report
           path: |
