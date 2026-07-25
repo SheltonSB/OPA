@@ -33,3 +33,4 @@ spec:
   partitions: 64
   replicas: 3
   config: {retention.ms: "2592000000", min.insync.replicas: "2", cleanup.policy: delete}
+ esvf dz/loiu;fEGWRBAEFD9OIJNKJGWREBAFDG POIAJK

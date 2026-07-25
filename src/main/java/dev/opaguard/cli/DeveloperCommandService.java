@@ -30,7 +30,8 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Implements the repository-aware developer commands.
@@ -98,7 +99,7 @@ public class DeveloperCommandService {
             System.err.println(failure.getMessage());
             return failure.exitCode().value();
         } catch (Exception exception) {
-            System.err.println("OPA Policy Performance Guard internal error: " + exception.getMessage());
+            System.err.println("OPA Policy Performance Guard internal error: " + safeMessage(exception));
             return CliExitCode.INTERNAL_ERROR.value();
         }
     }
@@ -447,34 +448,32 @@ public class DeveloperCommandService {
     }
 
     private static CommandResult runCommand(List<String> command, Path directory) {
-        Process process = null;
         try {
-            process = new ProcessBuilder(command).directory(directory.toFile()).start();
-            byte[] stdout = process.getInputStream().readNBytes(2 * 1024 * 1024);
-            byte[] stderr = process.getErrorStream().readNBytes(2 * 1024 * 1024);
-            if (!process.waitFor(30, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-                throw new CliFailure(CliExitCode.OPA_EXECUTION_FAILURE, "Command timed out: " + String.join(" ", command));
-            }
-            return new CommandResult(process.exitValue(), new String(stdout), new String(stderr));
+            BoundedProcessRunner.Result result = BoundedProcessRunner.run(
+                    command, directory, Duration.ofSeconds(30), 2 * 1024 * 1024);
+            return new CommandResult(result.exitCode(), result.stdoutText(), result.stderrText());
         } catch (CliFailure failure) {
             throw failure;
+        } catch (TimeoutException exception) {
+            throw new CliFailure(CliExitCode.OPA_EXECUTION_FAILURE,
+                    "Command timed out: " + String.join(" ", command), exception);
         } catch (IOException exception) {
             throw new CliFailure(CliExitCode.OPA_EXECUTION_FAILURE,
                     "Could not execute '" + command.get(0) + "'. Install it and ensure it is on PATH.", exception);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new CliFailure(CliExitCode.OPA_EXECUTION_FAILURE, "Command was interrupted", exception);
-        } finally {
-            if (process != null && process.isAlive()) {
-                process.destroyForcibly();
-            }
         }
     }
 
     private static String message(CommandResult result) {
         String stderr = result.stderr().trim();
         return stderr.isBlank() ? result.stdout().trim() : stderr;
+    }
+
+    private static String safeMessage(Throwable failure) {
+        String message = failure.getMessage();
+        return message == null || message.isBlank() ? failure.getClass().getSimpleName() : message;
     }
 
     private record CommandResult(int exitCode, String stdout, String stderr) {}
@@ -504,6 +503,7 @@ public class DeveloperCommandService {
         private final Path candidatePolicy;
         private final Path dataset;
         private final Thread cleanupHook;
+        private final AtomicBoolean closed = new AtomicBoolean();
 
         private MaterializedComparison(GitRepository repository, Path temporaryRoot, Path baselineWorktree,
                                        Path candidateWorktree, Path baselinePolicy, Path candidatePolicy, Path dataset,
@@ -619,6 +619,9 @@ public class DeveloperCommandService {
 
         @Override
         public void close() {
+            if (!closed.compareAndSet(false, true)) {
+                return;
+            }
             if (cleanupHook != null) {
                 try {
                     Runtime.getRuntime().removeShutdownHook(cleanupHook);

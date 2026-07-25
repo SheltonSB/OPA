@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Clock;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -44,6 +45,10 @@ public class RedisRateLimiter {
      * @throws GuardException when limiter state cannot be established
      */
     public void requirePermit(UUID organizationId, int limitPerMinute) {
+        Objects.requireNonNull(organizationId, "organizationId");
+        if (limitPerMinute < 1) {
+            throw new IllegalArgumentException("Rate limit must be at least one request per minute");
+        }
         long minute = clock.instant().getEpochSecond() / 60;
         String key = "opa-guard:rate:" + organizationId + ":" + minute;
         try {

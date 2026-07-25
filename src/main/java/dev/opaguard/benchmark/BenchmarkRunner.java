@@ -60,15 +60,18 @@ public class BenchmarkRunner {
             int measuredIterations,
             Duration timeout) {
 
-        for (int iteration = 0; iteration < warmupIterations; iteration++) {
-            cases.forEach(benchmarkCase -> evaluator.evaluate(policyPath, query, benchmarkCase.input(), timeout));
-        }
+        validateRequest(policyPath, query, cases, warmupIterations, measuredIterations, timeout);
 
         long requestedSamples = Math.multiplyExact((long) cases.size(), measuredIterations);
         if (requestedSamples > MAX_SAMPLES_PER_WORKER) {
             throw new IllegalArgumentException("A worker may execute at most " + MAX_SAMPLES_PER_WORKER
                     + " measured samples; split this benchmark into shards");
         }
+
+        for (int iteration = 0; iteration < warmupIterations; iteration++) {
+            cases.forEach(benchmarkCase -> evaluator.evaluate(policyPath, query, benchmarkCase.input(), timeout));
+        }
+
         RuntimeTelemetryProvider.RuntimeTelemetry before = evaluator instanceof RuntimeTelemetryProvider telemetry
                 ? telemetry.snapshot(policyPath) : RuntimeTelemetryProvider.RuntimeTelemetry.unavailable();
         List<Measurement> measurements = new ArrayList<>((int) requestedSamples);
@@ -105,6 +108,10 @@ public class BenchmarkRunner {
     public BenchmarkPair runPaired(Path baselinePath, Path candidatePath, String query,
                                    List<BenchmarkCase> cases, int warmupIterations,
                                    int measuredIterations, Duration timeout) {
+        validateRequest(baselinePath, query, cases, warmupIterations, measuredIterations, timeout);
+        if (candidatePath == null) {
+            throw new IllegalArgumentException("Candidate policy path is required");
+        }
         long requestedSamples = Math.multiplyExact((long) cases.size(), measuredIterations);
         if (requestedSamples > MAX_SAMPLES_PER_WORKER) {
             throw new IllegalArgumentException("A worker may execute at most " + MAX_SAMPLES_PER_WORKER
@@ -210,5 +217,27 @@ public class BenchmarkRunner {
 
     private static double nanosToMillis(double nanos) {
         return nanos / 1_000_000d;
+    }
+
+    private static void validateRequest(Path policyPath, String query, List<BenchmarkCase> cases,
+                                         int warmupIterations, int measuredIterations, Duration timeout) {
+        if (policyPath == null) {
+            throw new IllegalArgumentException("Policy path is required");
+        }
+        if (query == null || query.isBlank()) {
+            throw new IllegalArgumentException("OPA query is required");
+        }
+        if (cases == null || cases.isEmpty()) {
+            throw new IllegalArgumentException("At least one benchmark case is required");
+        }
+        if (warmupIterations < 0) {
+            throw new IllegalArgumentException("Warmup iterations must not be negative");
+        }
+        if (measuredIterations < 1) {
+            throw new IllegalArgumentException("Measured iterations must be at least one");
+        }
+        if (timeout == null || timeout.isZero() || timeout.isNegative()) {
+            throw new IllegalArgumentException("Evaluation timeout must be positive");
+        }
     }
 }

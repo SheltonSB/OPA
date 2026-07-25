@@ -39,4 +39,24 @@ class DatasetLoaderTest {
                 .isInstanceOf(GuardException.class)
                 .hasMessageContaining("unique");
     }
+
+    @Test
+    void rejectsEmptyJsonDocumentsWithoutNullPointerException() throws Exception {
+        Path dataset = tempDir.resolve("empty.json");
+        Files.writeString(dataset, "");
+
+        assertThatThrownBy(() -> loader.load(dataset))
+                .isInstanceOf(GuardException.class)
+                .hasMessageContaining("non-empty JSON array");
+    }
+
+    @Test
+    void rejectsBlankWrappedCaseIds() throws Exception {
+        Path dataset = tempDir.resolve("blank-id.json");
+        Files.writeString(dataset, "[{\"id\":\" \",\"input\":{}}]");
+
+        assertThatThrownBy(() -> loader.load(dataset))
+                .isInstanceOf(GuardException.class)
+                .hasMessageContaining("must not be blank");
+    }
 }

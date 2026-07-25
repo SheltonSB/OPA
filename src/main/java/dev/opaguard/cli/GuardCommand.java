@@ -80,7 +80,9 @@ public class GuardCommand implements ApplicationRunner {
             System.out.printf("Reports: %s, %s%n", properties.markdownOutput(), properties.jsonOutput());
             exitCode = report.passed() ? 0 : 1;
         } catch (Exception exception) {
-            System.err.println("OPA Policy Performance Guard failed: " + exception.getMessage());
+            String message = exception.getMessage();
+            System.err.println("OPA Policy Performance Guard failed: "
+                    + (message == null || message.isBlank() ? exception.getClass().getSimpleName() : message));
             exitCode = 2;
         }
     }

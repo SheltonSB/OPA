@@ -32,7 +32,9 @@ public class RegoComplexityAnalyzer {
     public ComplexityMetrics analyze(Path policyRoot) {
         long files = 0, lines = 0, rules = 0, traversals = 0, comprehensions = 0;
         try (var paths = Files.walk(policyRoot)) {
-            for (Path path : paths.filter(p -> p.toString().toLowerCase(Locale.ROOT).endsWith(".rego")).toList()) {
+            for (var iterator = paths.filter(p -> p.toString().toLowerCase(Locale.ROOT).endsWith(".rego")).iterator();
+                 iterator.hasNext();) {
+                Path path = iterator.next();
                 String source = Files.readString(path);
                 files++;
                 lines += source.lines().count();

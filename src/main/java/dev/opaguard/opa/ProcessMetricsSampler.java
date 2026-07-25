@@ -1,6 +1,7 @@
 package dev.opaguard.opa;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -48,7 +49,7 @@ final class ProcessMetricsSampler implements AutoCloseable {
         sampleCpu();
         try {
             peakRssBytes = Math.max(peakRssBytes, currentRssBytes(process.pid()));
-        } catch (IOException | NumberFormatException ignored) {
+        } catch (IOException | NumberFormatException | ArithmeticException ignored) {
             // RSS is best-effort because the OPA process can end between discovery and sampling.
         }
     }
@@ -89,8 +90,13 @@ final class ProcessMetricsSampler implements AutoCloseable {
                 Thread.currentThread().interrupt();
                 return 0L;
             }
-            String rss = new String(ps.getInputStream().readNBytes(1024)).trim();
-            return rss.isBlank() ? 0L : Long.parseLong(rss) * 1024L;
+            try (InputStream output = ps.getInputStream(); InputStream errors = ps.getErrorStream()) {
+                String rss = new String(output.readNBytes(1024)).trim();
+                if (rss.isBlank()) {
+                    return 0L;
+                }
+                return Math.multiplyExact(Long.parseLong(rss), 1024L);
+            }
         }
         return 0L;
     }

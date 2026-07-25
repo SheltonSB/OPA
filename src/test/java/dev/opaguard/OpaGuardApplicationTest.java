@@ -56,4 +56,14 @@ class OpaGuardApplicationTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Missing value for --config");
     }
+
+    @Test
+    void retainsTheLegacyGuardPropertiesConstructorShape() {
+        var properties = new dev.opaguard.config.GuardProperties(
+                "opa", "data.authz.allow", Path.of("baseline"), Path.of("candidate"),
+                Path.of("dataset.json"), 10, 15, 500, 25, Path.of("report.md"),
+                Path.of("report.json"), 30, true);
+
+        assertThat(properties.policyPath()).isEqualTo(Path.of("policy"));
+    }
 }

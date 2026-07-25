@@ -41,7 +41,7 @@ public class ScalabilityBenchmarkRunner {
      * @return immutable throughput points and scaling slope
      */
     public ScalabilityProfile run(Path policyPath, String query, List<BenchmarkCase> cases,
-                                  int measuredIterations, Duration timeout) {
+        int measuredIterations, Duration timeout) {
         if (cases.isEmpty()) throw new IllegalArgumentException("Scalability benchmark requires cases");
         long requested = Math.multiplyExact((long) cases.size(), Math.min(measuredIterations, 10));
         int samplesPerLevel = (int) Math.min(1_000, Math.max(100, requested));

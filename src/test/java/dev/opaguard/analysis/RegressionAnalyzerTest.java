@@ -1,7 +1,9 @@
 package dev.opaguard.analysis;
 
 import com.fasterxml.jackson.databind.node.BooleanNode;
+import com.fasterxml.jackson.databind.node.TextNode;
 import dev.opaguard.domain.BenchmarkMetrics;
+import dev.opaguard.domain.DecisionMismatch;
 import dev.opaguard.domain.PolicyBenchmark;
 import org.junit.jupiter.api.Test;
 
@@ -68,6 +70,20 @@ class RegressionAnalyzerTest {
         assertThat(report.status()).isEqualTo("FAIL");
         assertThat(report.comparisons().get(2).thresholdExceeded()).isTrue();
         assertThat(report.comparisons().get(3).metric()).contains("informational");
+    }
+
+    @Test
+    void detectsCandidateOnlyDecisionCases() {
+        PolicyBenchmark baseline = benchmark(10, 100, true);
+        PolicyBenchmark candidate = new PolicyBenchmark(
+                "test", Path.of("policy"), baseline.metrics(),
+                Map.of("case", BooleanNode.TRUE, "candidate-only", TextNode.valueOf("unexpected")));
+
+        var report = analyzer.analyze(baseline, candidate, 10, 10, true);
+
+        assertThat(report.status()).isEqualTo("FAIL");
+        assertThat(report.decisionMismatches()).extracting(DecisionMismatch::caseId)
+                .containsExactly("candidate-only");
     }
 
     private PolicyBenchmark benchmark(double latency, long memory, boolean decision) {

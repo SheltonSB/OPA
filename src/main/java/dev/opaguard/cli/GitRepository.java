@@ -1,9 +1,6 @@
 package dev.opaguard.cli;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -11,7 +8,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Small, argument-list-only adapter around Git for developer commands.
@@ -103,7 +99,7 @@ public final class GitRepository {
         if (ref == null || ref.isBlank()) {
             throw new CliFailure(CliExitCode.GIT_RESOLUTION_FAILURE, "Git revision must not be blank");
         }
-        CommandResult result = run(root, List.of("git", "rev-parse", "--verify", ref + "^{commit}"));
+        CommandResult result = run(root, List.of("git", "rev-parse", "--verify", "--end-of-options", ref + "^{commit}"));
         if (result.exitCode() != 0 || result.stdout().isBlank()) {
             throw new CliFailure(CliExitCode.GIT_RESOLUTION_FAILURE,
                     "Could not resolve Git revision '" + ref + "'. Fetch it or pass a valid --base value.");
@@ -206,49 +202,22 @@ public final class GitRepository {
     }
 
     private static CommandResult run(Path directory, List<String> command) {
-        Process process = null;
         try {
-            process = new ProcessBuilder(command).directory(directory.toFile()).start();
-            byte[] stdout = readBounded(process.getInputStream());
-            byte[] stderr = readBounded(process.getErrorStream());
-            if (!process.waitFor(COMMAND_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
-                process.destroyForcibly();
-                throw new CliFailure(CliExitCode.GIT_RESOLUTION_FAILURE,
-                        "Git command timed out: " + String.join(" ", command));
-            }
-            return new CommandResult(process.exitValue(), text(stdout), text(stderr));
+            BoundedProcessRunner.Result result = BoundedProcessRunner.run(
+                    command, directory, COMMAND_TIMEOUT, MAX_OUTPUT_BYTES);
+            return new CommandResult(result.exitCode(), result.stdoutText(), result.stderrText());
         } catch (CliFailure failure) {
             throw failure;
+        } catch (java.util.concurrent.TimeoutException exception) {
+            throw new CliFailure(CliExitCode.GIT_RESOLUTION_FAILURE,
+                    "Git command timed out: " + String.join(" ", command), exception);
         } catch (IOException exception) {
             throw new CliFailure(CliExitCode.GIT_RESOLUTION_FAILURE,
                     "Git is required but could not be executed. Install Git and retry.", exception);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new CliFailure(CliExitCode.GIT_RESOLUTION_FAILURE, "Git command was interrupted", exception);
-        } finally {
-            if (process != null && process.isAlive()) {
-                process.destroyForcibly();
-            }
         }
-    }
-
-    private static byte[] readBounded(InputStream stream) throws IOException {
-        try (stream) {
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = stream.read(buffer)) >= 0) {
-                output.write(buffer, 0, read);
-                if (output.size() > MAX_OUTPUT_BYTES) {
-                    throw new IOException("Git output exceeded the safety limit");
-                }
-            }
-            return output.toByteArray();
-        }
-    }
-
-    private static String text(byte[] bytes) {
-        return new String(bytes, StandardCharsets.UTF_8).trim();
     }
 
     private static String message(CommandResult result) {

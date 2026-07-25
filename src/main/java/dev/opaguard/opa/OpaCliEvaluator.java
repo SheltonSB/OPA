@@ -31,6 +31,8 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class OpaCliEvaluator implements PolicyEvaluator {
     static final int MAX_PROCESS_OUTPUT_BYTES = 16 * 1024 * 1024;
+    private static final long MAX_POLICY_BYTES = 256L * 1024 * 1024;
+    private static final int MAX_POLICY_FILES = 10_000;
     private final ObjectMapper objectMapper;
     private final String executable;
 
@@ -118,6 +120,9 @@ public class OpaCliEvaluator implements PolicyEvaluator {
 
     private JsonNode parseDecision(byte[] output) throws IOException {
         JsonNode root = objectMapper.readTree(output);
+        if (root == null || root.isNull()) {
+            throw new GuardException("OPA returned an empty JSON response");
+        }
         JsonNode expressions = root.path("result").path(0).path("expressions");
         if (!expressions.isArray() || expressions.isEmpty()) {
             return NullNode.getInstance();
@@ -147,8 +152,20 @@ public class OpaCliEvaluator implements PolicyEvaluator {
             }
             if (Files.isDirectory(policyPath)) {
                 try (var paths = Files.walk(policyPath)) {
-                    if (paths.anyMatch(Files::isSymbolicLink)) {
-                        throw new GuardException("Policy trees must not contain symbolic links: " + policyPath);
+                    long totalBytes = 0;
+                    int fileCount = 0;
+                    for (var iterator = paths.iterator(); iterator.hasNext();) {
+                        Path path = iterator.next();
+                        if (Files.isSymbolicLink(path)) {
+                            throw new GuardException("Policy trees must not contain symbolic links: " + policyPath);
+                        }
+                        if (Files.isRegularFile(path)) {
+                            fileCount++;
+                            totalBytes = Math.addExact(totalBytes, Files.size(path));
+                            if (fileCount > MAX_POLICY_FILES || totalBytes > MAX_POLICY_BYTES) {
+                                throw new GuardException("Policy tree exceeds the 10,000-file or 256 MiB safety limit");
+                            }
+                        }
                     }
                 }
             }

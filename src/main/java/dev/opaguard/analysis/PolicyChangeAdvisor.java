@@ -1,6 +1,8 @@
 package dev.opaguard.analysis;
 
 import dev.opaguard.domain.DecisionMismatch;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -22,6 +24,7 @@ import java.util.stream.Stream;
  */
 @Component
 public class PolicyChangeAdvisor {
+    private static final Logger LOG = LoggerFactory.getLogger(PolicyChangeAdvisor.class);
     private static final Pattern ARRAY_TRAVERSAL = Pattern.compile("\\bsome\\s+\\w+\\s+in\\s+|\\[[_a-zA-Z][^]]*]", Pattern.MULTILINE);
 
     /**
@@ -57,7 +60,8 @@ public class PolicyChangeAdvisor {
             return files.filter(file -> file.toString().toLowerCase(Locale.ROOT).endsWith(".rego"))
                     .mapToLong(this::countInFile)
                     .sum();
-        } catch (IOException ignored) {
+        } catch (IOException exception) {
+            LOG.debug("Unable to inspect policy sources for performance advice", exception);
             return 0;
         }
     }
@@ -70,7 +74,8 @@ public class PolicyChangeAdvisor {
                 count++;
             }
             return count;
-        } catch (IOException ignored) {
+        } catch (IOException exception) {
+            LOG.debug("Unable to inspect policy source file {} for performance advice", file.getFileName(), exception);
             return 0;
         }
     }

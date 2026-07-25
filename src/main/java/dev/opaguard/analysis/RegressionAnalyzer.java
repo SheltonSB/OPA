@@ -10,7 +10,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Compares benchmark measurements and authorization decisions against policy gates.
@@ -64,13 +66,7 @@ public class RegressionAnalyzer {
                         latencyThreshold, main.sampleCount(), 1_000),
                 compare("Peak memory (bytes)", main.peakMemoryBytes(), pullRequest.peakMemoryBytes(), memoryThreshold));
 
-        List<DecisionMismatch> mismatches = new ArrayList<>();
-        baseline.decisions().forEach((caseId, baselineDecision) -> {
-            var candidateDecision = candidate.decisions().get(caseId);
-            if (candidateDecision == null || !baselineDecision.equals(candidateDecision)) {
-                mismatches.add(new DecisionMismatch(caseId, baselineDecision, candidateDecision));
-            }
-        });
+        List<DecisionMismatch> mismatches = decisionMismatches(baseline, candidate);
 
         boolean regression = comparisons.stream().anyMatch(MetricComparison::thresholdExceeded);
         boolean correctnessFailure = failOnDecisionChange && !mismatches.isEmpty();
@@ -85,7 +81,7 @@ public class RegressionAnalyzer {
                 baseline,
                 candidate,
                 comparisons,
-                List.copyOf(mismatches),
+                mismatches,
                 advice.cause(),
                 advice.recommendation());
     }
@@ -129,9 +125,14 @@ public class RegressionAnalyzer {
 
     private static List<DecisionMismatch> decisionMismatches(PolicyBenchmark baseline, PolicyBenchmark candidate) {
         List<DecisionMismatch> mismatches = new ArrayList<>();
-        baseline.decisions().forEach((caseId, baselineDecision) -> {
+        Set<String> caseIds = new LinkedHashSet<>(baseline.decisions().keySet());
+        caseIds.addAll(candidate.decisions().keySet());
+        caseIds.forEach(caseId -> {
+            var baselineDecision = baseline.decisions().get(caseId);
             var candidateDecision = candidate.decisions().get(caseId);
-            if (candidateDecision == null || !baselineDecision.equals(candidateDecision)) {
+            if (!baseline.decisions().containsKey(caseId)
+                    || !candidate.decisions().containsKey(caseId)
+                    || !java.util.Objects.equals(baselineDecision, candidateDecision)) {
                 mismatches.add(new DecisionMismatch(caseId, baselineDecision, candidateDecision));
             }
         });

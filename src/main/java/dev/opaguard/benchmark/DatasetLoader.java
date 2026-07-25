@@ -56,8 +56,9 @@ public class DatasetLoader {
                 throw new GuardException("Benchmark dataset exceeds the 64 MiB safety limit");
             }
             JsonNode root = objectMapper.readTree(datasetPath.toFile());
-            JsonNode cases = root.isArray() ? root : root.path("cases");
-            if (!cases.isArray() || cases.isEmpty()) {
+            JsonNode cases = root != null && root.isArray() ? root
+                    : root == null ? null : root.path("cases");
+            if (cases == null || !cases.isArray() || cases.isEmpty()) {
                 throw new GuardException("Benchmark dataset must be a non-empty JSON array or contain a non-empty 'cases' array");
             }
             if (cases.size() > MAX_CASES) {
@@ -66,9 +67,18 @@ public class DatasetLoader {
             List<BenchmarkCase> result = new ArrayList<>();
             for (int index = 0; index < cases.size(); index++) {
                 JsonNode item = cases.get(index);
+                if (item == null || item.isMissingNode()) {
+                    throw new GuardException("Benchmark case " + (index + 1) + " is missing");
+                }
                 boolean wrapped = item.isObject() && item.has("input");
                 String id = wrapped && item.hasNonNull("id") ? item.get("id").asText() : "case-" + (index + 1);
+                if (id.isBlank()) {
+                    throw new GuardException("Benchmark case ids must not be blank");
+                }
                 JsonNode input = wrapped ? item.get("input") : item;
+                if (input == null || input.isMissingNode()) {
+                    throw new GuardException("Benchmark case " + id + " must contain input");
+                }
                 result.add(new BenchmarkCase(id, input));
             }
             long uniqueIds = result.stream().map(BenchmarkCase::id).distinct().count();
